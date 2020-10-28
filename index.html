@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>three.js webgl - glTF loader</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+  <link type="text/css" rel="stylesheet" href="main.css">
+</head>
+<style>
+
+  #clear_data {
+    position: absolute;
+    right: 0px;
+    top: 450px;
+    width: 100px;
+    height: 100px;
+    opacity: 0.5;
+  }
+
+  #cavas {
+    position: fixed;
+    top: 0px;
+    left: 0px;
+  }
+</style>
+
+<body>
+  <div id="info">
+  </div>
+  <script id="vertexShader" type="x-shader1/x-vertex1">
+    varying vec3 vWorldPosition;
+    varying vec3 vViewPosition;
+    varying vec3 vNormal;
+    void main() {
+      vNormal = normalize( normalMatrix * normal );
+      vec3 transformed = vec3( position );
+      vec4 mvPosition = modelViewMatrix * vec4( transformed, 1.0 );
+      vViewPosition = - mvPosition.xyz;
+
+      vec4 worldPosition = modelMatrix * vec4(position, 1.0 );
+      vWorldPosition = worldPosition.xyz;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+ </script>
+ <script id="fragmentShader" type="x-shader/x-fragment">
+    uniform samplerCube tCube;
+    varying vec3 vWorldPosition;
+    varying vec3 vViewPosition;
+    varying vec3 vNormal;
+    void main() {
+        gl_FragColor = textureCube( tCube, vec3(vWorldPosition.x, vWorldPosition.yz ) );
+        gl_FragColor.a = 0.5;
+        // gl_FragColor = vec4(1.0,0.0,0.0,1.0);
+    }
+  </script>
+
+  <script id="vertexShader_front" type="x-shader1/x-vertex1">
+    varying vec3 vWorldPosition;
+    varying vec3 vNormal;
+    void main() {
+      vNormal = normalize( normalMatrix * normal );
+      vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+      vWorldPosition = worldPosition.xyz;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+ </script>
+ <script id="fragmentShader_front" type="x-shader/x-fragment">
+    uniform samplerCube tCube;
+    varying vec3 vWorldPosition;
+    varying vec3 vNormal;
+    void main() {
+       float dotNL = dot(vNormal, vWorldPosition) * 0.5 + 0.5;
+       gl_FragColor = textureCube(tCube, vec3(vWorldPosition.x, vWorldPosition.yz ) ) * dotNL;
+       gl_FragColor.w = 0.9;
+       vec3 environentLight = vec3(0.3, 0.3, 0.3);
+       gl_FragColor.xyz += environentLight;
+    }
+  </script>
+
+
+
+
+  <script type='text/javascript' src='./Vconsole.js'></script>
+  <script type="module">
+    import * as THREE from './lib/three.module.js';
+    import { OrbitControls } from './lib/OrbitControls.js';
+    import { GLTFLoader } from './lib/GLTFLoader.js';
+    import { RGBELoader } from './lib/RGBELoader.js';
+    import { RoughnessMipmapper } from './lib/RoughnessMipmapper.js';
+    import {OBJLoader2} from './lib/OBJLoader2.js';
+    import { EffectComposer } from './lib/postprocessing/EffectComposer.js';
+		import { RenderPass } from './lib/postprocessing/RenderPass.js';
+		import { ShaderPass } from './lib/postprocessing/ShaderPass.js';
+
+    console.log(THREE.REVISION)
+    console.log(`THREE.RGBAFormat:${THREE.RGBAFormat}`);
+    console.log(`THREE.RGBFormat:${THREE.RGBFormat}`);
+    console.log(`THREE.UnsignedByteType:${THREE.UnsignedByteType}`);
+
+    var container, controls;
+    var roughnessMipmapper;
+    var camera, scene, renderer;
+    var composer;
+    var clock = new THREE.Clock();
+    var vConsole = new VConsole();
+    console.log('Hello world');
+    init();
+    animate();
+
+    function init(useWork) {
+      container = document.createElement('div');
+      document.body.appendChild(container);
+      camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.25, 200);
+      camera.position.set(- 1.8, 0.6, 2.7);
+      scene = new THREE.Scene();
+      // scene.background = new THREE.Color(0xffffff);
+
+      renderer = new THREE.WebGLRenderer({antialias:true});
+      renderer.debug.checkShaderErrors = false;
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      //renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      //renderer.toneMappingExposure = 0.35;
+      renderer.outputEncoding = THREE.sRGBEncoding;
+      
+     
+      container.appendChild(renderer.domElement);
+
+      var pmremGenerator = new THREE.PMREMGenerator(renderer);
+      pmremGenerator.compileEquirectangularShader();
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.minDistance = 0.01;
+      controls.maxDistance = 100;
+      controls.target.set(0, 0, 0);
+      controls.update();
+      window.addEventListener('resize', onWindowResize, false);
+
+      //增加环境光
+      var directionalLight = new THREE.DirectionalLight( 0xffffff, 2 );
+      // directionalLight.castShadow = true;
+      // renderer.shadowMap.enabled = true;
+      scene.add( directionalLight ); 
+
+      // scene.add(new THREE.AmbientLight(0x0c0c0c));
+      // var spotLight1 = new THREE.SpotLight(0xffffff);
+      // spotLight1.position.set(-400, -400, -400);
+      // var spotLight2 = new THREE.SpotLight(0xffffff);
+      // spotLight2.position.set(400, 400, 400);
+      // scene.add(spotLight1);
+      // scene.add(spotLight2);
+
+      var cubeTexture = new THREE.CubeTextureLoader().setPath('textures/cube/Bridge2/')
+            .load(
+                [
+                    'posx.jpg',
+                    'negx.jpg',
+                    'posy.jpg',
+                    'negy.jpg',
+                    'posz.jpg',
+                    'negz.jpg'
+                ]
+            );
+      cubeTexture.mapping = THREE.CubeRefractionMapping;
+
+
+      //load diamond
+      var loader = new OBJLoader2();
+      loader.load('./model/meshes/RoundCut.obj',(obj) => {
+        new RGBELoader().setDataType(THREE.UnsignedByteType).
+        setPath('./model/hdr/').load('royal_esplanade_1k.hdr', (tex)=>{
+        console.log(tex);
+        var envMap2 = pmremGenerator.fromEquirectangular(tex).texture;
+        tex.mapping = THREE.CubeRefractionMapping;
+        scene.background =  cubeTexture;
+        scene.environment = cubeTexture
+
+  
+        var cubeMaterial1 = new THREE.MeshPhongMaterial({color: 0xffffff, 
+          envMap:cubeTexture, refractionRatio:0.98, reflectivity:0.9, side:THREE.BackSide});
+        console.log(cubeMaterial1);
+
+
+        var customMaterial = new THREE.ShaderMaterial({
+          vertexShader : document.getElementById('vertexShader').textContent,
+          fragmentShader: document.getElementById('fragmentShader').textContent,
+          side: 1,
+          transparent:true,
+          depthWrite: true,
+          uniforms:{
+            "tCube": { type: "t", value: cubeTexture }
+          },
+        });
+
+        console.log(customMaterial);
+        obj.children[0].material = customMaterial;   // cubeMaterial1;
+        obj.children[0].material.needsUpdate = true;
+        scene.add(obj);
+        console.log(obj);
+
+        var objFront = obj.clone(true);
+        console.log(objFront);
+
+        var customFront = new THREE.ShaderMaterial({
+          vertexShader : document.getElementById('vertexShader_front').textContent,
+          fragmentShader: document.getElementById('fragmentShader_front').textContent,
+          side: 0,
+          transparent:true,
+          depthWrite: true,
+          uniforms:{
+            "tCube": { type: "t", value: cubeTexture }
+          },
+        });
+        objFront.children[0].material = customFront;   // cubeMaterial1;
+        objFront.children[0].material.needsUpdate = true;
+        scene.add(objFront);
+
+
+
+
+
+        // var geometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+        // var cube = new THREE.Mesh(geometry, cubeMaterial1);
+        // scene.add(cube);
+        // tex.dispose();
+        // pmremGenerator.dispose();
+      } );
+
+
+      },null, (err) => {
+        console.log(err);
+      });
+
+
+      composer = new EffectComposer( renderer );
+
+     
+        
+
+      // var cubeMaterial2 = new THREE.MeshPhongMaterial({color: 0xccddff, 
+      //     envMap:cubeTexture, refractionRatio:0.98, reflectivity:0.9});
+
+      //   var geometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+      //   var cube = new THREE.Mesh(geometry, cubeMaterial2);
+      //   scene.add(cube);
+
+      
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      render();
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      render();
+    }
+
+    function render() {
+      renderer.render(scene, camera);
+    }
+
+  </script>
+</body>
+
+</html>

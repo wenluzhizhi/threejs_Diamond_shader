@@ -1,0 +1,20 @@
+<html>
+  <body>
+    <a id="ar-link" rel="ar" href="http://192.168.30.41:8989/chair15.usdz"> 
+      <img src="textures/cube/sun_temple_stripe.jpg">
+   </a>
+   <script>
+     const linkElement = document.getElementById("ar-link");
+     console.log('1111111111');
+linkElement.addEventListener("message", function (event) {  
+    
+    console.log(event);
+    if (event.data == "_apple_ar_quicklook_button_tapped") {
+        // handle the user tap.
+        console.log(event);   
+    }
+}, false);
+   </script>
+  </body>
+</html>
+
