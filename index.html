@@ -48,10 +48,14 @@
     varying vec3 vWorldPosition;
     varying vec3 vViewPosition;
     varying vec3 vNormal;
+    uniform float cameraWorldPos[3];
     void main() {
-        gl_FragColor = textureCube( tCube, vec3(vWorldPosition.x, vWorldPosition.yz ) );
-        gl_FragColor.a = 0.5;
-        // gl_FragColor = vec4(1.0,0.0,0.0,1.0);
+        vec3 worldViewDir = vec3(cameraWorldPos[0] - vWorldPosition.x, cameraWorldPos[1] - vWorldPosition.y, cameraWorldPos[2] - vWorldPosition.y);
+        worldViewDir = normalize(worldViewDir) + vNormal;
+        worldViewDir = normalize(worldViewDir);
+        gl_FragColor = textureCube(tCube,  worldViewDir);
+        gl_FragColor.w = 0.5;
+        //gl_FragColor = vec4(1.0,0.0,0.0,1.0);
     }
   </script>
 
@@ -102,6 +106,7 @@
     var roughnessMipmapper;
     var camera, scene, renderer;
     var composer;
+    var backMaterial;
     var clock = new THREE.Clock();
     var vConsole = new VConsole();
     console.log('Hello world');
@@ -176,24 +181,23 @@
         scene.environment = cubeTexture
 
   
-        var cubeMaterial1 = new THREE.MeshPhongMaterial({color: 0xffffff, 
-          envMap:cubeTexture, refractionRatio:0.98, reflectivity:0.9, side:THREE.BackSide});
-        console.log(cubeMaterial1);
+      
 
 
-        var customMaterial = new THREE.ShaderMaterial({
+        var backMaterial = new THREE.ShaderMaterial({
           vertexShader : document.getElementById('vertexShader').textContent,
           fragmentShader: document.getElementById('fragmentShader').textContent,
           side: 1,
           transparent:true,
           depthWrite: true,
           uniforms:{
-            "tCube": { type: "t", value: cubeTexture }
+            "tCube": { type: "t", value: cubeTexture },
+            "cameraWorldPos":{value:[0, 0, 0]}
           },
         });
 
-        console.log(customMaterial);
-        obj.children[0].material = customMaterial;   // cubeMaterial1;
+        console.log(backMaterial);
+        obj.children[0].material = backMaterial;   // cubeMaterial1;
         obj.children[0].material.needsUpdate = true;
         scene.add(obj);
         console.log(obj);
@@ -256,6 +260,9 @@
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
+      backMaterial.uniforms.cameraWorldPos.value[0] = camera.position.x;
+      backMaterial.uniforms.cameraWorldPos.value[1] = camera.position.y;
+      backMaterial.uniforms.cameraWorldPos.value[2] = camera.position.z;
       render();
     }
 
