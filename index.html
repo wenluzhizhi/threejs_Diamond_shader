@@ -29,56 +29,91 @@
   <div id="info">
   </div>
   <script id="vertexShader" type="x-shader1/x-vertex1">
-    varying vec3 vWorldPosition;
-    varying vec3 vViewPosition;
-    varying vec3 vNormal;
+    varying vec3 uv2;
+    uniform float cameraWorldPos[3];
+    vec3 refract2(const in vec3 i, const in vec3 n, const in float eta)
+    {
+      float cosi = dot(i * -1.0, n);
+      float cost2 = 1.0 - eta * eta * (1.0 - cosi * cosi);
+      vec3 t = eta * i + n * (eta * cosi - sqrt(cost2));
+      if (cost2 > 0.0) {
+        return t;
+      } else {
+        return t * -1.0;
+      }
+      //return t * (vec3)(cost2 > 0.0);
+    }
     void main() {
-      vNormal = normalize( normalMatrix * normal );
-      vec3 transformed = vec3( position );
-      vec4 mvPosition = modelViewMatrix * vec4( transformed, 1.0 );
-      vViewPosition = - mvPosition.xyz;
-
-      vec4 worldPosition = modelMatrix * vec4(position, 1.0 );
-      vWorldPosition = worldPosition.xyz;
+      vec3 vNormal = normal.xyz;
+      vec3 vModlePosition = position.xyz;
+      vec3 vertexViewDir = vec3(cameraWorldPos[0] - vModlePosition.x, cameraWorldPos[1] - vModlePosition.y, cameraWorldPos[2] - vModlePosition.z);
+      vertexViewDir = vertexViewDir * -1.0;
+      vertexViewDir = normalize(vertexViewDir);
+      uv2 = 2.0 * vNormal - normalize(vertexViewDir);
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
  </script>
  <script id="fragmentShader" type="x-shader/x-fragment">
+    
+    vec3 refract2(const in vec3 i, const in vec3 n, const in float eta)
+    {
+      float cosi = dot(i * -1.0, n);
+      float cost2 = 1.0 - eta * eta * (1.0 - cosi * cosi);
+      vec3 t = eta * i + n * (eta * cosi - sqrt(cost2));
+      if (cost2 > 0.0) {
+        return t;
+      } else {
+        return t * -1.0;
+      }
+      //return t * (vec3)(cost2 > 0.0);
+    }
+    
     uniform samplerCube tCube;
-    varying vec3 vWorldPosition;
-    varying vec3 vViewPosition;
-    varying vec3 vNormal;
-    uniform float cameraWorldPos[3];
+    uniform vec3 Color;
+    uniform float EnvironmentLight;
+    uniform float Emission;
+    varying vec3 uv2;
     void main() {
-        vec3 worldViewDir = vec3(cameraWorldPos[0] - vWorldPosition.x, cameraWorldPos[1] - vWorldPosition.y, cameraWorldPos[2] - vWorldPosition.y);
-        worldViewDir = normalize(worldViewDir) + vNormal;
-        worldViewDir = normalize(worldViewDir);
-        gl_FragColor = textureCube(tCube,  worldViewDir);
-        gl_FragColor.w = 0.5;
-        //gl_FragColor = vec4(1.0,0.0,0.0,1.0);
+        vec3 refraction = textureCube(tCube, uv2).rgb * Color.xyz;
+        vec4 reflection = textureCube(tCube, uv2);
+        vec3 multiplier = reflection.xyz * EnvironmentLight + vec3(Emission, Emission, Emission);
+        gl_FragColor = vec4(refraction.xyz *multiplier.xyz , 0.5);
     }
   </script>
 
+
+
+
   <script id="vertexShader_front" type="x-shader1/x-vertex1">
-    varying vec3 vWorldPosition;
-    varying vec3 vNormal;
+    varying vec3 uv2;
+    varying float fresnel;
+    uniform float cameraWorldPos[3];
     void main() {
-      vNormal = normalize( normalMatrix * normal );
-      vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-      vWorldPosition = worldPosition.xyz;
+      vec3 vNormal = normal.xyz;
+      vec3 vModlePosition = position.xyz;
+      vec3 vertexViewDir = vec3(cameraWorldPos[0] - vModlePosition.x, cameraWorldPos[1] - vModlePosition.y, cameraWorldPos[2] - vModlePosition.z);
+      vertexViewDir = vertexViewDir * -1.0;
+      vertexViewDir = normalize(vertexViewDir);
+      uv2 = 2.0 * vNormal - normalize(vertexViewDir);
+      fresnel = 1.0 - dot(vNormal, vertexViewDir);
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
  </script>
  <script id="fragmentShader_front" type="x-shader/x-fragment">
+    varying vec3 uv2;
+    varying float fresnel;
     uniform samplerCube tCube;
-    varying vec3 vWorldPosition;
-    varying vec3 vNormal;
+    uniform vec3 Color;
+    uniform float EnvironmentLight;
+    uniform float Emission;
+    uniform float ReflectionStrength;
+   
     void main() {
-       float dotNL = dot(vNormal, vWorldPosition) * 0.5 + 0.5;
-       gl_FragColor = textureCube(tCube, vec3(vWorldPosition.x, vWorldPosition.yz ) ) * dotNL;
-       gl_FragColor.w = 0.9;
-       vec3 environentLight = vec3(0.3, 0.3, 0.3);
-       gl_FragColor.xyz += environentLight;
+       vec3 refraction = textureCube(tCube, uv2).xyz * Color.xyz;
+       vec4 reflection = textureCube(tCube, uv2);
+       vec3 reflection2 = reflection.xyz * ReflectionStrength * fresnel;
+       vec3 multiplier = reflection.xyz * EnvironmentLight + vec3(Emission, Emission, Emission);
+       gl_FragColor =  vec4(reflection2 + refraction.xyz * multiplier, 0.5);
     }
   </script>
 
@@ -96,6 +131,7 @@
     import { EffectComposer } from './lib/postprocessing/EffectComposer.js';
 		import { RenderPass } from './lib/postprocessing/RenderPass.js';
 		import { ShaderPass } from './lib/postprocessing/ShaderPass.js';
+    import { GUI } from './lib/dat.gui.module.js';
 
     console.log(THREE.REVISION)
     console.log(`THREE.RGBAFormat:${THREE.RGBAFormat}`);
@@ -106,13 +142,42 @@
     var roughnessMipmapper;
     var camera, scene, renderer;
     var composer;
-    var backMaterial;
+    var backMaterial, frontMaterial;
+    var objBack, objFront;
     var clock = new THREE.Clock();
     var vConsole = new VConsole();
+    var gui = new GUI();
+
+
+    var controls = new function () {
+      this.Color = [0, 128, 255]; // RGB array
+      this.ReflectionStrength = 0.02;
+      this.EnvironmentLight = 1.0;
+      this.Emission = 1.0;
+    };
+    gui.addColor(controls, 'Color').onChange((value)=> {
+      console.log(value);
+      backMaterial.uniforms.Color.value = new THREE.Vector3(value[0] / 255, value[1]/ 255, value[2]/ 255);
+      frontMaterial.uniforms.Color.value = new THREE.Vector3(value[0] / 255, value[1]/ 255, value[2]/ 255);
+    });
+    gui.add(controls, 'ReflectionStrength', 0.0, 2.0).onChange((value) => {
+      frontMaterial.uniforms.ReflectionStrength.value = value;
+    });
+    gui.add(controls, 'EnvironmentLight', 0.0, 2.0).onChange((value) => {
+      backMaterial.uniforms.EnvironmentLight.value = value;
+      frontMaterial.uniforms.EnvironmentLight.value = value;
+    });
+    gui.add(controls, 'Emission', 0.0, 2.0).onChange((value) => {
+      backMaterial.uniforms.Emission.value = value;
+      frontMaterial.uniforms.Emission.value = value;
+    });
+
+
+
+
     console.log('Hello world');
     init();
-    animate();
-
+   
     function init(useWork) {
       container = document.createElement('div');
       document.body.appendChild(container);
@@ -155,15 +220,15 @@
       // scene.add(spotLight1);
       // scene.add(spotLight2);
 
-      var cubeTexture = new THREE.CubeTextureLoader().setPath('textures/cube/Bridge2/')
+      var cubeTexture = new THREE.CubeTextureLoader().setPath('cube/skyboxsun25deg/')
             .load(
                 [
-                    'posx.jpg',
-                    'negx.jpg',
-                    'posy.jpg',
-                    'negy.jpg',
-                    'posz.jpg',
-                    'negz.jpg'
+                    'px.jpg',
+                    'nx.jpg',
+                    'py.jpg',
+                    'ny.jpg',
+                    'pz.jpg',
+                    'nz.jpg'
                 ]
             );
       cubeTexture.mapping = THREE.CubeRefractionMapping;
@@ -172,6 +237,7 @@
       //load diamond
       var loader = new OBJLoader2();
       loader.load('./model/meshes/RoundCut.obj',(obj) => {
+        objBack = obj.children[0];
         new RGBELoader().setDataType(THREE.UnsignedByteType).
         setPath('./model/hdr/').load('royal_esplanade_1k.hdr', (tex)=>{
         console.log(tex);
@@ -179,46 +245,51 @@
         tex.mapping = THREE.CubeRefractionMapping;
         scene.background =  cubeTexture;
         scene.environment = cubeTexture
-
-  
-      
-
-
-        var backMaterial = new THREE.ShaderMaterial({
+        backMaterial = new THREE.ShaderMaterial({
           vertexShader : document.getElementById('vertexShader').textContent,
           fragmentShader: document.getElementById('fragmentShader').textContent,
-          side: 1,
-          transparent:true,
-          depthWrite: true,
+          side: THREE.BackSide,
+          transparent: true,
+          depthWrite: false,
           uniforms:{
             "tCube": { type: "t", value: cubeTexture },
-            "cameraWorldPos":{value:[0, 0, 0]}
+            "cameraWorldPos":{value:[0, 0, 0]},
+            "modelMatrix":{value:new THREE.Matrix4()},
+            "Color":{value: new THREE.Vector3()},
+            "EnvironmentLight":{value: 0.0},
+            "Emission":{value: 0.0},
           },
         });
 
         console.log(backMaterial);
-        obj.children[0].material = backMaterial;   // cubeMaterial1;
-        obj.children[0].material.needsUpdate = true;
-        scene.add(obj);
-        console.log(obj);
+        objBack.material = backMaterial;   // cubeMaterial1;
+        objBack.material.needsUpdate = true;
+        scene.add(objBack);
+        console.log(objBack);
 
-        var objFront = obj.clone(true);
-        console.log(objFront);
+        objFront = objBack.clone(true);
 
-        var customFront = new THREE.ShaderMaterial({
+        frontMaterial = new THREE.ShaderMaterial({
           vertexShader : document.getElementById('vertexShader_front').textContent,
           fragmentShader: document.getElementById('fragmentShader_front').textContent,
-          side: 0,
-          transparent:true,
-          depthWrite: true,
+          side: THREE.FrontSide,
+          transparent: true,
+          depthWrite: false,
           uniforms:{
-            "tCube": { type: "t", value: cubeTexture }
+            "tCube": { type: "t", value: cubeTexture },
+            "cameraWorldPos":{value:[0, 0, 0]},
+            "modelMatrix":{value:new THREE.Matrix4()},
+            "Color":{value: new THREE.Vector3()},
+            "EnvironmentLight":{value: 0.0},
+            "Emission":{value: 0.0},
+            "ReflectionStrength": {value: 0.0}
           },
         });
-        objFront.children[0].material = customFront;   // cubeMaterial1;
-        objFront.children[0].material.needsUpdate = true;
+        objFront.material = frontMaterial;   // cubeMaterial1;
+        objFront.material.needsUpdate = true;
         scene.add(objFront);
 
+        animate();
 
 
 
@@ -228,12 +299,22 @@
         // scene.add(cube);
         // tex.dispose();
         // pmremGenerator.dispose();
+
+        document.onkeydown= (event) => {
+          if (event.keyCode == 65) {
+            
+            objBack.rotation.x += 0.04
+          }
+        };
+
       } );
 
 
       },null, (err) => {
         console.log(err);
       });
+
+
 
 
       composer = new EffectComposer( renderer );
@@ -253,6 +334,26 @@
 
     function animate() {
       requestAnimationFrame(animate);
+      //console.log(backMaterial);
+      
+
+      const mat = new THREE.Matrix4();
+      const modlePos = new THREE.Vector3();
+      modlePos.copy(camera.position);
+      modlePos.applyMatrix4(mat.getInverse(objBack.matrix));
+      backMaterial.uniforms.cameraWorldPos.value[0] = modlePos.x;
+      backMaterial.uniforms.cameraWorldPos.value[1] = modlePos.y;
+      backMaterial.uniforms.cameraWorldPos.value[2] = modlePos.z;
+      backMaterial.uniforms.modelMatrix.value.copy(objBack.matrix);
+
+
+      frontMaterial.uniforms.cameraWorldPos.value[0] = modlePos.x;
+      frontMaterial.uniforms.cameraWorldPos.value[1] = modlePos.y;
+      frontMaterial.uniforms.cameraWorldPos.value[2] = modlePos.z;
+
+
+      //objFront.rotation.x += 0.04;
+      //objBack.rotation.x +=  0.04;
       render();
     }
 
@@ -260,9 +361,6 @@
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
-      backMaterial.uniforms.cameraWorldPos.value[0] = camera.position.x;
-      backMaterial.uniforms.cameraWorldPos.value[1] = camera.position.y;
-      backMaterial.uniforms.cameraWorldPos.value[2] = camera.position.z;
       render();
     }
 
