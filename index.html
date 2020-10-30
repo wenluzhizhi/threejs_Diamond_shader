@@ -40,7 +40,7 @@
 		import { RenderPass } from './lib/postprocessing/RenderPass.js';
 		import { ShaderPass } from './lib/postprocessing/ShaderPass.js';
     import { GUI } from './lib/dat.gui.module.js';
-    import {backMaterial_frag, backMaterial_vert, frontMaterial_frag, frontMaterial_vert} from './shader.js'
+    import {getBackMaterial, getFrontMaterial} from './shader.js'
 
     console.log(THREE.REVISION)
     console.log(`THREE.RGBAFormat:${THREE.RGBAFormat}`);
@@ -52,33 +52,37 @@
     var camera, scene, renderer;
     var composer;
     var backMaterial, frontMaterial;
-    var objBack, objFront;
+    var models = [];
     var clock = new THREE.Clock();
     var vConsole = new VConsole();
     var gui = new GUI();
-
-
     var controls = new function () {
       this.Color = [1, 1, 1]; // RGB array
-      this.ReflectionStrength = 0.0;
-      this.EnvironmentLight = 1.0;
-      this.Emission = 1.0;
+      this.ReflectionStrength = 2.0;
+      this.EnvironmentLight = 0.4;
+      this.Emission = 0.7;
+      this.backAlpha = 0.5;
+      this.frontAlpha = 0.5;
     };
     gui.addColor(controls, 'Color').onChange((value)=> {
-      console.log(value);
-      backMaterial.uniforms.Color.value = new THREE.Vector3(value[0] / 255, value[1]/ 255, value[2]/ 255);
-      frontMaterial.uniforms.Color.value = new THREE.Vector3(value[0] / 255, value[1]/ 255, value[2]/ 255);
+      setModelUniformsC3("Color", value);
     });
     gui.add(controls, 'ReflectionStrength', 0.0, 2.0).onChange((value) => {
-      frontMaterial.uniforms.ReflectionStrength.value = value;
+      setModelUniformsV1("ReflectionStrength", value);
     });
     gui.add(controls, 'EnvironmentLight', 0.0, 2.0).onChange((value) => {
-      backMaterial.uniforms.EnvironmentLight.value = value;
-      frontMaterial.uniforms.EnvironmentLight.value = value;
+      setModelUniformsV1("EnvironmentLight", value);
     });
     gui.add(controls, 'Emission', 0.0, 2.0).onChange((value) => {
-      backMaterial.uniforms.Emission.value = value;
-      frontMaterial.uniforms.Emission.value = value;
+      setModelUniformsV1("Emission", value);
+    });
+
+    gui.add(controls, 'backAlpha', 0.0, 1.0).onChange((value) => {
+      setModelUniformsV1("backAlpha", value);
+    });
+
+    gui.add(controls, 'frontAlpha', 0.0, 1.0).onChange((value) => {
+      setModelUniformsV1("frontAlpha", value);
     });
 
 
@@ -87,7 +91,7 @@
     console.log('Hello world');
     init();
    
-    function init(useWork) {
+    async function init() {
       container = document.createElement('div');
       document.body.appendChild(container);
       camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.25, 200);
@@ -102,10 +106,7 @@
       //renderer.toneMapping = THREE.ACESFilmicToneMapping;
       //renderer.toneMappingExposure = 0.35;
       renderer.outputEncoding = THREE.sRGBEncoding;
-      
-     
       container.appendChild(renderer.domElement);
-
       var pmremGenerator = new THREE.PMREMGenerator(renderer);
       pmremGenerator.compileEquirectangularShader();
       controls = new OrbitControls(camera, renderer.domElement);
@@ -114,7 +115,7 @@
       controls.target.set(0, 0, 0);
       controls.update();
       window.addEventListener('resize', onWindowResize, false);
-      var cubeTexture = new THREE.CubeTextureLoader().setPath('cube/skyboxsun25deg/')
+      var cubeTexture = new THREE.CubeTextureLoader().setPath('cube/Park2/')
             .load(
                 [
                     'px.jpg',
@@ -126,136 +127,87 @@
                 ]
             );
       cubeTexture.mapping = THREE.CubeRefractionMapping;
-
-
       var refractTexture = new THREE.CubeTextureLoader().setPath('cube/12/')
             .load(
                 [
-                    '1.jpg',
-                    '1.jpg',
-                    '1.jpg',
-                    '1.jpg',
-                    '1.jpg',
-                    '1.jpg'
+                    '4.jpg',
+                    '4.jpg',
+                    '4.jpg',
+                    '4.jpg',
+                    '4.jpg',
+                    '4.jpg'
                 ]
             );
-            refractTexture.mapping = THREE.CubeRefractionMapping;
-            console.log(refractTexture);
-
-
-      //load diamond
-      var loader = new OBJLoader2();
-      loader.load('./model/meshes/RoundCut.obj',(obj) => {
-        objBack = obj.children[0];
-        new RGBELoader().setDataType(THREE.UnsignedByteType).
-        setPath('./model/hdr/').load('royal_esplanade_1k.hdr', (tex)=>{
-        console.log(tex);
-        var envMap2 = pmremGenerator.fromEquirectangular(tex).texture;
-        tex.mapping = THREE.CubeRefractionMapping;
-        scene.background =  cubeTexture;
-        scene.environment = cubeTexture
-        backMaterial = new THREE.ShaderMaterial({
-          vertexShader : backMaterial_vert,
-          fragmentShader: backMaterial_frag,
-          side: THREE.BackSide,
-          transparent: true,
-          depthWrite: false,
-          uniforms:{
-            "tCube": { type: "t", value: cubeTexture },
-            "RefractTex": { type: "t", value: refractTexture },
-            "cameraWorldPos":{value:[0, 0, 0]},
-            "modelMatrix":{value:new THREE.Matrix4()},
-            "Color":{value: new THREE.Vector3(1, 1, 1)},
-            "EnvironmentLight":{value: 1.0},
-            "Emission":{value: 1.0},
-          },
-        });
-
-        console.log(backMaterial);
-        objBack.material = backMaterial;   // cubeMaterial1;
-        objBack.material.needsUpdate = true;
-        scene.add(objBack);
-        console.log(objBack);
-
-        objFront = objBack.clone(true);
-
-        frontMaterial = new THREE.ShaderMaterial({
-          vertexShader : frontMaterial_vert,
-         fragmentShader: frontMaterial_frag,
-          side: THREE.FrontSide,
-          transparent: true,
-          depthWrite: false,
-          uniforms:{
-            "tCube": { type: "t", value: cubeTexture },
-            "cameraWorldPos":{value:[0, 0, 0]},
-            "modelMatrix":{value:new THREE.Matrix4()},
-            "Color":{value: new THREE.Vector3(1, 1, 1)},
-            "EnvironmentLight":{value: 1.0},
-            "Emission":{value: 1.0},
-            "ReflectionStrength": {value: 0.5},
-            "RefractTex": { type: "t", value: refractTexture },
-          },
-        });
-        objFront.material = frontMaterial;   // cubeMaterial1;
-        objFront.material.needsUpdate = true;
-        scene.add(objFront);
-
-        animate();
-        document.onkeydown= (event) => {
-          if (event.keyCode == 65) {
-            
-            objBack.rotation.x += 0.04
-            objFront.rotation.x += 0.04
-          }
-        };
-
-      } );
-
-
-      },null, (err) => {
-        console.log(err);
+      refractTexture.mapping = THREE.CubeRefractionMapping;
+      models.push(await loadModel('./model/meshes/RoundCut.obj', cubeTexture, refractTexture));
+      models.push(await loadModel('./model/meshes/OvalCut.obj', cubeTexture, refractTexture,new THREE.Vector3(1, 0, 0)));
+      models.push(await loadModel('./model/meshes/MarquiseCut.obj', cubeTexture, refractTexture,new THREE.Vector3(-1, 0, 0)));
+      models.push(await loadModel('./model/meshes/PrincessCut.obj', cubeTexture, refractTexture,new THREE.Vector3(0, 1, 0)));
+      models.push(await loadModel('./model/meshes/AsscherCut.obj', cubeTexture, refractTexture,new THREE.Vector3(0, -1, 0)));
+      models.forEach((item) => {
+        scene.add(item);
       });
+      scene.background =  cubeTexture;
+      animate();
+    }
 
 
+    function loadModel(url, cubeTexture, refractTexture, pos) {
+      var loader = new OBJLoader2()
+      return new Promise((resolve, reject) => {
+        loader.load(url, (obj) => {
+        const backModel = obj.children[0];
+        backModel.material = getBackMaterial(THREE, cubeTexture, refractTexture);
+        const frontModel = backModel.clone(true);
+        frontModel.material = getFrontMaterial(THREE, cubeTexture, refractTexture);
+        backModel.add(frontModel);
+        if (pos) {
+          backModel.position.copy(pos);
+        }
+        resolve(backModel);
+       });
+      });
+    }
 
-
-      composer = new EffectComposer( renderer );
-
-     
-        
-
-      // var cubeMaterial2 = new THREE.MeshPhongMaterial({color: 0xccddff, 
-      //     envMap:cubeTexture, refractionRatio:0.98, reflectivity:0.9});
-
-      //   var geometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-      //   var cube = new THREE.Mesh(geometry, cubeMaterial2);
-      //   scene.add(cube);
-
+    function setModelUniformsV3 (item, param, v3) {
+      
+        item.material.uniforms[param].value[0] = v3.x;
+        item.material.uniforms[param].value[1] = v3.y;
+        item.material.uniforms[param].value[2] = v3.z;
+        item.children[0].material.uniforms[param].value[0] = v3.x;
+        item.children[0].material.uniforms[param].value[1] = v3.y;
+        item.children[0].material.uniforms[param].value[2] = v3.z;
       
     }
+
+    function setModelUniformsV1 (param, v1) {
+      models.forEach((item) => {
+        item.material.uniforms[param].value = v1;
+        item.children[0].material.uniforms[param].value = v1;
+      });
+    }
+
+    function setModelUniformsC3 (param,value) {
+      models.forEach((item) => {
+        item.material.uniforms[param].value = new THREE.Vector3(value[0] / 255, value[1]/ 255, value[2]/ 255);
+        item.children[0].material.uniforms[param].value = new THREE.Vector3(value[0] / 255, value[1]/ 255, value[2]/ 255);
+      });
+    }
+
 
     function animate() {
       requestAnimationFrame(animate);
       //console.log(backMaterial);
-      
-
-      const mat = new THREE.Matrix4();
-      const modlePos = new THREE.Vector3();
+      let mat = new THREE.Matrix4();
+      let modlePos = new THREE.Vector3();
       modlePos.copy(camera.position);
-      modlePos.applyMatrix4(mat.getInverse(objBack.matrix));
-      backMaterial.uniforms.cameraWorldPos.value[0] = modlePos.x;
-      backMaterial.uniforms.cameraWorldPos.value[1] = modlePos.y;
-      backMaterial.uniforms.cameraWorldPos.value[2] = modlePos.z;
-      backMaterial.uniforms.modelMatrix.value.copy(objBack.matrix);
+      models.forEach((item)=> {
+        modlePos.applyMatrix4(mat.getInverse(item.matrix));
+        setModelUniformsV3 (item,"cameraWorldPos", modlePos);
 
-
-      frontMaterial.uniforms.cameraWorldPos.value[0] = modlePos.x;
-      frontMaterial.uniforms.cameraWorldPos.value[1] = modlePos.y;
-      frontMaterial.uniforms.cameraWorldPos.value[2] = modlePos.z;
-
-
-      //objFront.rotation.x += 0.04;
-      //objBack.rotation.x +=  0.04;
+        item.rotation.x += 0.01;
+      });
+      
       render();
     }
 

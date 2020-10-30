@@ -11,7 +11,6 @@ vec3 refract2(const in vec3 i, const in vec3 n, const in float eta)
   } else {
     return t * -1.0;
   }
-  //return t * (vec3)(cost2 > 0.0);
 }
 void main() {
   vec3 vNormal = normal.xyz;
@@ -20,6 +19,7 @@ void main() {
   vertexViewDir = vertexViewDir * -1.0;
   vertexViewDir = normalize(vertexViewDir);
   uv2 = 2.0 * vNormal - normalize(vertexViewDir);
+  uv2 = refract2(vertexViewDir, vNormal, 0.7);
   uv2 = (modelMatrix * vec4(uv2, 0.0)).xyz;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
@@ -36,19 +36,28 @@ vec3 refract2(const in vec3 i, const in vec3 n, const in float eta)
   } else {
     return t * -1.0;
   }
-  //return t * (vec3)(cost2 > 0.0);
 }
 
 uniform samplerCube tCube;
+uniform samplerCube RefractTex;
 uniform vec3 Color;
 uniform float EnvironmentLight;
 uniform float Emission;
+uniform float backAlpha;
 varying vec3 uv2;
 void main() {
-    vec3 refraction = textureCube(tCube, uv2).rgb * Color.xyz;
+    vec3 refraction = textureCube(RefractTex, uv2).xyz;
+    float x1 = refraction.x * 0.1;
+    refraction = vec3(x1, x1, x1);
+    if (refraction.x < 0.9 *0.1) {
+      refraction.x= 0.0;
+      refraction.y= 0.0;
+      refraction.z= 0.0;
+    }
     vec4 reflection = textureCube(tCube, uv2);
     vec3 multiplier = reflection.xyz * EnvironmentLight + vec3(Emission, Emission, Emission);
-    gl_FragColor = vec4(refraction.xyz *multiplier.xyz , 0.5);
+    gl_FragColor = vec4(refraction.xyz *multiplier.xyz , backAlpha);
+    //gl_FragColor = vec4(refraction, backAlpha);
 }
 
 
@@ -68,12 +77,7 @@ const frontMaterial_vert = `
       uv2 = 2.0 * vNormal - normalize(vertexViewDir);
       uv2 = (modelMatrix * vec4(uv2, 0.0)).xyz;
       fresnel = 1.0 - dot(vNormal, vertexViewDir);
-      if ( fresnel > 1.0) {
-        fresnel = 1.0;
-      }
-      if (fresnel < 0.0) {
-        fresnel = 0.0;
-      }
+      fresnel = clamp(fresnel, 0.0, 1.0);
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
 `;
@@ -87,17 +91,72 @@ const frontMaterial_frag = `
     uniform float EnvironmentLight;
     uniform float Emission;
     uniform float ReflectionStrength;
-   
+    uniform float frontAlpha;
     void main() {
-        vec3 refraction = textureCube(RefractTex, uv2).xyz * Color.xyz;
+        vec3 refraction = textureCube(RefractTex, uv2).xyz;
+        float x1 = refraction.x * 0.1;
+        refraction = vec3(x1, x1, x1);
+        if (refraction.x < 0.9 * 0.1) {
+          refraction.x= 0.0;
+          refraction.y= 0.0;
+          refraction.z= 0.0;
+        }
         vec4 reflection = textureCube(tCube, uv2);
-        vec3 multiplier = reflection.xyz * ReflectionStrength * fresnel  + vec3(Emission, Emission, Emission);
-        gl_FragColor =  vec4(multiplier + refraction, 0.7);
-        //gl_FragColor =  vec4(refraction,   1.0);
+        
+
+
+
+        vec3 multiplier = reflection.xyz * ReflectionStrength * fresnel + refraction + vec3(Emission, Emission, Emission);
+        gl_FragColor =  vec4(multiplier, frontAlpha);
     }
 
 `;
 
 
+function getFrontMaterial(THREE, cubeTexture, refractTexture) {
+   return new THREE.ShaderMaterial({
+    vertexShader : frontMaterial_vert,
+   fragmentShader: frontMaterial_frag,
+    side: THREE.FrontSide,
+    transparent: true,
+    depthWrite: false,
+    uniforms:{
+      "tCube": { type: "t", value: cubeTexture },
+      "cameraWorldPos":{value:[0, 0, 0]},
+      "modelMatrix":{value:new THREE.Matrix4()},
+      "Color":{value: new THREE.Vector3(1, 1, 1)},
+      "EnvironmentLight":{value: 0.4},
+      "Emission":{value: 0.7},
+      "backAlpha":{value:0.5},
+      "frontAlpha":{value:0.5},
+      "ReflectionStrength": {value: 2.0},
+      "RefractTex": { type: "t", value: refractTexture },
+    },
+  });
+}
 
-export {backMaterial_frag, backMaterial_vert, frontMaterial_frag, frontMaterial_vert};
+function getBackMaterial(THREE, cubeTexture, refractTexture) {
+  return new THREE.ShaderMaterial({
+    vertexShader : backMaterial_vert,
+    fragmentShader: backMaterial_frag,
+    side: THREE.BackSide,
+    transparent: true,
+    depthWrite: false,
+    uniforms:{
+      "tCube": { type: "t", value: cubeTexture },
+      "RefractTex": { type: "t", value: refractTexture },
+      "cameraWorldPos":{value:[0, 0, 0]},
+      "modelMatrix":{value:new THREE.Matrix4()},
+      "Color":{value: new THREE.Vector3(1, 1, 1)},
+      "EnvironmentLight":{value: 0.4},
+      "Emission":{value: 0.7},
+      "backAlpha":{value:0.5},
+      "frontAlpha":{value:0.5},
+      "ReflectionStrength": {value: 2.0},
+    },
+  }); 
+}
+
+export {getBackMaterial, getFrontMaterial}
+
+//export {backMaterial_frag, backMaterial_vert, frontMaterial_frag, frontMaterial_vert};
