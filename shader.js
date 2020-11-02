@@ -18,7 +18,8 @@ void main() {
   vec3 vertexViewDir = vec3(cameraWorldPos[0] - vModlePosition.x, cameraWorldPos[1] - vModlePosition.y, cameraWorldPos[2] - vModlePosition.z);
   vertexViewDir = vertexViewDir * -1.0;
   vertexViewDir = normalize(vertexViewDir);
-  uv2 = 2.0 * vNormal - normalize(vertexViewDir);
+  vNormal = normalize(vNormal);
+  uv2 = 2.0 * vNormal * dot(vNormal, vertexViewDir) - vertexViewDir;
   uv2 = refract2(vertexViewDir, vNormal, 0.7);
   uv2 = (modelMatrix * vec4(uv2, 0.0)).xyz;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -47,17 +48,9 @@ uniform float backAlpha;
 varying vec3 uv2;
 void main() {
     vec3 refraction = textureCube(RefractTex, uv2).xyz;
-    float x1 = refraction.x * 0.1;
-    refraction = vec3(x1, x1, x1);
-    if (refraction.x < 0.9 *0.1) {
-      refraction.x= 0.0;
-      refraction.y= 0.0;
-      refraction.z= 0.0;
-    }
     vec4 reflection = textureCube(tCube, uv2);
     vec3 multiplier = reflection.xyz * EnvironmentLight + vec3(Emission, Emission, Emission);
     gl_FragColor = vec4(refraction.xyz *multiplier.xyz , backAlpha);
-    //gl_FragColor = vec4(refraction, backAlpha);
 }
 
 
@@ -74,10 +67,21 @@ const frontMaterial_vert = `
       vec3 vertexViewDir = vec3(cameraWorldPos[0] - vModlePosition.x, cameraWorldPos[1] - vModlePosition.y, cameraWorldPos[2] - vModlePosition.z);
       vertexViewDir = vertexViewDir * 1.0;
       vertexViewDir = normalize(vertexViewDir);
-      uv2 = 2.0 * vNormal - normalize(vertexViewDir);
+      uv2 = 2.0 * vNormal * dot(vNormal, vertexViewDir) - vertexViewDir;
       uv2 = (modelMatrix * vec4(uv2, 0.0)).xyz;
+
+
       fresnel = 1.0 - dot(vNormal, vertexViewDir);
       fresnel = clamp(fresnel, 0.0, 1.0);
+
+      float FRACT = 2.4;
+      float _Power = 5.0;
+      float r0 = ((1.0 - FRACT) * (1.0 - FRACT)) / ((1.0 + FRACT) * (1.0 + FRACT));
+      // 菲涅尔公式
+      fresnel = r0 + (1.0- r0) * pow(1.0- clamp(dot(vNormal, vertexViewDir), 0.0, 1.0), _Power);
+
+
+
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
 `;
@@ -94,19 +98,10 @@ const frontMaterial_frag = `
     uniform float frontAlpha;
     void main() {
         vec3 refraction = textureCube(RefractTex, uv2).xyz;
-        float x1 = refraction.x * 0.1;
-        refraction = vec3(x1, x1, x1);
-        if (refraction.x < 0.9 * 0.1) {
-          refraction.x= 0.0;
-          refraction.y= 0.0;
-          refraction.z= 0.0;
-        }
         vec4 reflection = textureCube(tCube, uv2);
-        
-
-
-
-        vec3 multiplier = reflection.xyz * ReflectionStrength * fresnel + refraction + vec3(Emission, Emission, Emission);
+        vec3 Color = vec3(1.0, 1.0, 1.0);
+        Color *= fresnel;
+        vec3 multiplier = reflection.xyz * ReflectionStrength * fresnel + refraction + vec3(Emission, Emission, Emission) * (1.0 - fresnel);
         gl_FragColor =  vec4(multiplier, frontAlpha);
     }
 
