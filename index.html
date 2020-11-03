@@ -40,7 +40,7 @@
 		import { RenderPass } from './lib/postprocessing/RenderPass.js';
 		import { ShaderPass } from './lib/postprocessing/ShaderPass.js';
     import { GUI } from './lib/dat.gui.module.js';
-    import {getBackMaterial, getFrontMaterial} from './shader.js'
+    import {getBackMaterial, getFrontMaterial,getRayMaterial} from './shader.js'
 
     console.log(THREE.REVISION)
     console.log(`THREE.RGBAFormat:${THREE.RGBAFormat}`);
@@ -85,12 +85,8 @@
       setModelUniformsV1("frontAlpha", value);
     });
 
-
-
-
     console.log('Hello world');
     init();
-   
     async function init() {
       container = document.createElement('div');
       document.body.appendChild(container);
@@ -115,7 +111,7 @@
       controls.target.set(0, 0, 0);
       controls.update();
       window.addEventListener('resize', onWindowResize, false);
-      var cubeTexture = new THREE.CubeTextureLoader().setPath('cube/Park2/')
+      var cubeTexture = new THREE.CubeTextureLoader().setPath('cube/Bridge2/')
             .load(
                 [
                     'px.jpg',
@@ -139,11 +135,7 @@
                 ]
             );
       refractTexture.mapping = THREE.CubeRefractionMapping;
-      models.push(await loadModel('./model/meshes/RoundCut.obj', cubeTexture, refractTexture));
-      models.push(await loadModel('./model/meshes/OvalCut.obj', cubeTexture, refractTexture,new THREE.Vector3(1, 0, 0)));
-      models.push(await loadModel('./model/meshes/MarquiseCut.obj', cubeTexture, refractTexture,new THREE.Vector3(-1, 0, 0)));
-      models.push(await loadModel('./model/meshes/PrincessCut.obj', cubeTexture, refractTexture,new THREE.Vector3(0, 1, 0)));
-      models.push(await loadModel('./model/meshes/AsscherCut.obj', cubeTexture, refractTexture,new THREE.Vector3(0, -1, 0)));
+      models.push(await loadModel('./model/meshes/RoundCut.obj'));
       models.forEach((item) => {
         scene.add(item);
       });
@@ -157,13 +149,27 @@
       return new Promise((resolve, reject) => {
         loader.load(url, (obj) => {
         const backModel = obj.children[0];
-        backModel.material = getBackMaterial(THREE, cubeTexture, refractTexture);
-        const frontModel = backModel.clone(true);
-        frontModel.material = getFrontMaterial(THREE, cubeTexture, refractTexture);
-        backModel.add(frontModel);
-        if (pos) {
-          backModel.position.copy(pos);
+        const material = getRayMaterial(THREE, cubeTexture);
+        backModel.material = material;
+
+        const posArray = backModel.geometry.attributes.position.array;
+        const normalArray = backModel.geometry.attributes.normal.array;
+
+        console.log(backModel.geometry);
+
+        const posArrayV3 = [];
+        const normalArrayV3 = [];
+        const count = posArray.length;
+        console.log(count);
+        for(let i=0; i < count; i+=3) {
+          posArrayV3.push(new THREE.Vector3(posArray[i], posArray[i+1], posArray[i+2]));
+          normalArrayV3.push(new THREE.Vector3(normalArray[i], normalArray[i+1], normalArray[i+2]));
         }
+        console.log(posArrayV3);
+        console.log(normalArrayV3);
+
+        material.uniforms.pos.value = posArrayV3;
+        material.uniforms.normal.value = normalArrayV3;
         resolve(backModel);
        });
       });
@@ -171,27 +177,27 @@
 
     function setModelUniformsV3 (item, param, v3) {
       
-        item.material.uniforms[param].value[0] = v3.x;
-        item.material.uniforms[param].value[1] = v3.y;
-        item.material.uniforms[param].value[2] = v3.z;
-        item.children[0].material.uniforms[param].value[0] = v3.x;
-        item.children[0].material.uniforms[param].value[1] = v3.y;
-        item.children[0].material.uniforms[param].value[2] = v3.z;
+        // item.material.uniforms[param].value[0] = v3.x;
+        // item.material.uniforms[param].value[1] = v3.y;
+        // item.material.uniforms[param].value[2] = v3.z;
+        // item.children[0].material.uniforms[param].value[0] = v3.x;
+        // item.children[0].material.uniforms[param].value[1] = v3.y;
+        // item.children[0].material.uniforms[param].value[2] = v3.z;
       
     }
 
     function setModelUniformsV1 (param, v1) {
-      models.forEach((item) => {
-        item.material.uniforms[param].value = v1;
-        item.children[0].material.uniforms[param].value = v1;
-      });
+      // models.forEach((item) => {
+      //   item.material.uniforms[param].value = v1;
+      //   item.children[0].material.uniforms[param].value = v1;
+      // });
     }
 
     function setModelUniformsC3 (param,value) {
-      models.forEach((item) => {
-        item.material.uniforms[param].value = new THREE.Vector3(value[0] / 255, value[1]/ 255, value[2]/ 255);
-        item.children[0].material.uniforms[param].value = new THREE.Vector3(value[0] / 255, value[1]/ 255, value[2]/ 255);
-      });
+      // models.forEach((item) => {
+      //   item.material.uniforms[param].value = new THREE.Vector3(value[0] / 255, value[1]/ 255, value[2]/ 255);
+      //   item.children[0].material.uniforms[param].value = new THREE.Vector3(value[0] / 255, value[1]/ 255, value[2]/ 255);
+      // });
     }
 
 
@@ -202,11 +208,19 @@
       let modlePos = new THREE.Vector3();
       modlePos.copy(camera.position);
       models.forEach((item)=> {
-        modlePos.applyMatrix4(mat.getInverse(item.matrix));
-        setModelUniformsV3 (item,"cameraWorldPos", modlePos);
-
+        // modlePos.applyMatrix4(mat.getInverse(item.matrix));
+        // setModelUniformsV3 (item,"cameraWorldPos", modlePos);
         //item.rotation.x += 0.01;
+        item.material.uniforms.UNITY_MATRIX_I_V.value = camera.matrixWorld;
+        item.material.uniforms.unity_CameraInvProjection.value = camera.projectionMatrixInverse;
+
+        // const v1 = new THREE.Vector3(0, 0, 0);
+        // v1.applyMatrix4(camera.matrixWorld);
+        // console.log(v1);
+        // console.log(camera.position);
       });
+
+      console.log();
       
       render();
     }
