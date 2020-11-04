@@ -8,7 +8,6 @@
   <link type="text/css" rel="stylesheet" href="main.css">
 </head>
 <style>
-
   #clear_data {
     position: absolute;
     right: 0px;
@@ -35,105 +34,167 @@
     import { GLTFLoader } from './lib/GLTFLoader.js';
     import { RGBELoader } from './lib/RGBELoader.js';
     import { RoughnessMipmapper } from './lib/RoughnessMipmapper.js';
-    import {OBJLoader2} from './lib/OBJLoader2.js';
+    import { OBJLoader2 } from './lib/OBJLoader2.js';
     import { EffectComposer } from './lib/postprocessing/EffectComposer.js';
-		import { RenderPass } from './lib/postprocessing/RenderPass.js';
+    import { RenderPass } from './lib/postprocessing/RenderPass.js';
     import { ShaderPass } from './lib/postprocessing/ShaderPass.js';
     import { UnrealBloomPass } from './lib/postprocessing/UnrealBloomPass.js';
     import { GUI } from './lib/dat.gui.module.js';
-    import {getBackMaterial, getFrontMaterial} from './shader.js'
+    import { getBackMaterial, getFrontMaterial } from './shader.js'
 
     console.log(THREE.REVISION)
     console.log(`THREE.RGBAFormat:${THREE.RGBAFormat}`);
     console.log(`THREE.RGBFormat:${THREE.RGBFormat}`);
     console.log(`THREE.UnsignedByteType:${THREE.UnsignedByteType}`);
 
-    var container, controls,composer, bloomPass;
+    var container, controls, composer, bloomPass;
     var roughnessMipmapper;
     var camera, scene, renderer;
     var composer;
+    var frontModel, backModel, zhihuanModel;
     var backMaterial, frontMaterial;
     var models = [];
     var clock = new THREE.Clock();
     var vConsole = new VConsole();
+
+
     var gui = new GUI();
-    var controls = new function () {
-      this.Color = [1, 1, 1]; // RGB array
-      this.ReflectionStrength = 2.0;
-      this.EnvironmentLight = 0.4;
-      this.Emission = 0.19;
-      this.backAlpha = 0.5;
-      this.frontAlpha = 0.5;
-    };
-    gui.addColor(controls, 'Color').onChange((value)=> {
-      setModelUniformsC3("Color", value);
-    });
-    gui.add(controls, 'ReflectionStrength', 0.0, 2.0).onChange((value) => {
-      setModelUniformsV1("ReflectionStrength", value);
-    });
-    gui.add(controls, 'EnvironmentLight', 0.0, 2.0).onChange((value) => {
-      setModelUniformsV1("EnvironmentLight", value);
-    });
-    gui.add(controls, 'Emission', 0.0, 2.0).onChange((value) => {
-      setModelUniformsV1("Emission", value);
-    });
+   
 
-    gui.add(controls, 'backAlpha', 0.0, 1.0).onChange((value) => {
-      setModelUniformsV1("backAlpha", value);
-    });
-
-    gui.add(controls, 'frontAlpha', 0.0, 1.0).onChange((value) => {
-      setModelUniformsV1("frontAlpha", value);
-    });
-
-    var params = {
-				exposure: 1.1,
-				bloomStrength: 0.8,
-				bloomThreshold: 1.3595,
-				bloomRadius: 0.182
-    };
     
-    gui.add( params, 'exposure', 0.1, 2 ).onChange( function ( value ) {
-       renderer.toneMappingExposure = Math.pow( value, 4.0 );
-    } );
+    var params = {
+        exposure: 1.1,
+        bloomStrength: 0.8,
+        bloomThreshold: 1.3595,
+        bloomRadius: 0.182
+      };
+     
+    function AddGUI(params) {
+      
+      var controls ={
+          Color : [1, 1, 1], // RGB array
+          BackReflectionStrength : 1.0,
+          BackRefractionStrength : 1.0,
+          EnvironmentLight : 0.4,
+          Emission : 0.19,
+          backAlpha : 0.5,
+          frontAlpha : 0.5,
+          FrontReflectionStrength:1.0,
+          FrontRefractionStrength:1.0,
+          FrontEmissionStrength:1.0,
+          showZhihuan: true,
+      };
+      
+      
 
-    gui.add( params, 'bloomThreshold', 0.0, 1.0 ).onChange( function ( value ) {
-        bloomPass.threshold = ( value );
-    } );
+      gui.addColor(controls, 'Color').onChange((value) => {
+        setModelUniformsC3("Color", value);
+      });
+      gui.add(controls, 'FrontReflectionStrength', 0.0, 5.0).onChange((value) => {
+        frontModel.material.uniforms.FrontReflectionStrength.value = value;
+      });
+      gui.add(controls, 'FrontRefractionStrength', 0.0, 50.0).onChange((value) => {
+        frontModel.material.uniforms.FrontRefractionStrength.value = value;
+      });
+      gui.add(controls, 'FrontEmissionStrength', 0.0, 5.0).onChange((value) => {
+        frontModel.material.uniforms.FrontEmissionStrength.value = value;
+      });
+      gui.add(controls, 'frontAlpha', 0.0, 1.0).onChange((value) => {
+        frontModel.material.uniforms.frontAlpha.value = value;
+      });
 
-    gui.add( params, 'bloomStrength', 0.0, 10.0 ).onChange( function ( value ) {
+
+      gui.add(controls, 'BackReflectionStrength', 0.0, 2.0).onChange((value) => {
+        backModel.material.uniforms.BackReflectionStrength.value = value;
+      });
+      gui.add(controls, 'BackRefractionStrength', 0.0, 2.0).onChange((value) => {
+        backModel.material.uniforms.BackRefractionStrength.value = value;
+      });
+      gui.add(controls, 'backAlpha', 0.0, 1.0).onChange((value) => {
+        backModel.material.uniforms.backAlpha.value = value;
+      });
+
+
+      gui.add(params, 'exposure', 0.1, 2).onChange(function (value) {
+        renderer.toneMappingExposure = Math.pow(value, 4.0);
+      });
+
+      gui.add(params, 'bloomThreshold', 0.0, 1.0).onChange(function (value) {
+        bloomPass.threshold = (value);
+      });
+
+      gui.add(params, 'bloomStrength', 0.0, 10.0).onChange(function (value) {
 
         bloomPass.strength = value;
 
-    } );
+      });
 
-    gui.add( params, 'bloomRadius', 0.0, 1.0 ).onChange( function ( value ) {
+      gui.add(params, 'bloomRadius', 0.0, 1.0).onChange(function (value) {
 
-        bloomPass.radius = ( value );
+        bloomPass.radius = (value);
 
-    } );
+      });
+      gui.add(controls, 'showZhihuan').onChange(function (value) {
+
+        zhihuanModel.visible = value;
+
+      });
+
+    }
 
 
+    function loadCubeMap(url) {
+      return new Promise((resolve, reject) => {
+        const loader = new THREE.CubeTextureLoader();
+        loader.setPath(url);
+        const tex = loader.load(['px.jpg','nx.jpg','py.jpg','ny.jpg','pz.jpg','nz.jpg'],(cubeTexture) => {
+          resolve(cubeTexture);
+        });
+      });
+    }
 
+    function loadGlb(url) {
+      return new Promise((resolve, reject) => {
+        var loader = new GLTFLoader();
+        loader.load(url, (glb) => {
+          console.log(glb);
+          resolve(glb.scene);
+        });
+      });
+    }
 
+    function processModel(model, cubeTexture, refractTexture) {
+      console.log('-----------------');
+      console.log(cubeTexture);
+      console.log(refractTexture);
+      backModel = model.getObjectByName("zuanshi");
+      frontModel = backModel.clone(true);
+      frontModel.name = "front_zuanshi";
+      backModel.parent.add(frontModel);
+      backModel.material = getBackMaterial(THREE, cubeTexture, refractTexture);
+      console.log(frontModel);
+      frontModel.material = getFrontMaterial(THREE, cubeTexture, refractTexture);
 
-    console.log('Hello world');
+      zhihuanModel = model.getObjectByName("zhihuan");
+    }
+
     init();
-   
+    AddGUI(params);
+
     async function init() {
       container = document.createElement('div');
       document.body.appendChild(container);
-      camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.25, 200);
-      camera.position.set(- 1.8, 0.6, 2.7);
+      camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 200);
+      camera.position.set(0, 0, 0.5);
       scene = new THREE.Scene();
       // scene.background = new THREE.Color(0xffffff);
 
-      renderer = new THREE.WebGLRenderer({antialias:true});
+      renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.debug.checkShaderErrors = false;
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
-      //renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      //renderer.toneMappingExposure = 0.35;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1;
       renderer.outputEncoding = THREE.sRGBEncoding;
       container.appendChild(renderer.domElement);
       var pmremGenerator = new THREE.PMREMGenerator(renderer);
@@ -144,96 +205,54 @@
       controls.target.set(0, 0, 0);
       controls.update();
       window.addEventListener('resize', onWindowResize, false);
-      var cubeTexture = new THREE.CubeTextureLoader().setPath('cube/Park2/')
-            .load(
-                [
-                    'px.jpg',
-                    'nx.jpg',
-                    'py.jpg',
-                    'ny.jpg',
-                    'pz.jpg',
-                    'nz.jpg'
-                ]
-            );
-      cubeTexture.mapping = THREE.CubeRefractionMapping;
-      var refractTexture = new THREE.CubeTextureLoader().setPath('cube/12/')
-            .load(
-                [
-                    '4.jpg',
-                    '4.jpg',
-                    '4.jpg',
-                    '4.jpg',
-                    '4.jpg',
-                    '4.jpg'
-                ]
-            );
-      refractTexture.mapping = THREE.CubeRefractionMapping;
-      models.push(await loadModel('./model/meshes/RoundCut.obj', cubeTexture, refractTexture));
-      models.push(await loadModel('./model/meshes/OvalCut.obj', cubeTexture, refractTexture,new THREE.Vector3(1, 0, 0)));
-      models.push(await loadModel('./model/meshes/MarquiseCut.obj', cubeTexture, refractTexture,new THREE.Vector3(-1, 0, 0)));
-      models.push(await loadModel('./model/meshes/PrincessCut.obj', cubeTexture, refractTexture,new THREE.Vector3(0, 1, 0)));
-      models.push(await loadModel('./model/meshes/AsscherCut.obj', cubeTexture, refractTexture,new THREE.Vector3(0, -1, 0)));
-      models.forEach((item) => {
-        scene.add(item);
-      });
-      scene.background =  cubeTexture;
+      const cubeTexture = await loadCubeMap('model/jiezhi/');
+      const refractTexture = await loadCubeMap('cube/12/1/');
 
-      const renderScene = new RenderPass( scene, camera );
 
-        bloomPass = new UnrealBloomPass( new THREE.Vector2( window.innerWidth, window.innerHeight ), 1.5, 0.4, 0.85 );
-				bloomPass.threshold = params.bloomThreshold;
-				bloomPass.strength = params.bloomStrength;
-				bloomPass.radius = params.bloomRadius;
+      const model = await loadGlb('model/jiezhi/jiezhi.glb');
+      scene.add(model);
+      processModel(model, cubeTexture, refractTexture );
+      console.log(model);
 
-				composer = new EffectComposer( renderer );
-				composer.addPass( renderScene );
-        composer.addPass( bloomPass );
-        console.log(composer);
-      
+      scene.environment = cubeTexture;
+      //scene.background = cubeTexture;
+
+      const renderScene = new RenderPass(scene, camera);
+      bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+      bloomPass.threshold = params.bloomThreshold;
+      bloomPass.strength = params.bloomStrength;
+      bloomPass.radius = params.bloomRadius;
+
+      composer = new EffectComposer(renderer);
+      composer.addPass(renderScene);
+      composer.addPass(bloomPass);
+      console.log(composer);
+
       animate();
     }
 
 
-    function loadModel(url, cubeTexture, refractTexture, pos) {
-      var loader = new OBJLoader2()
-      return new Promise((resolve, reject) => {
-        loader.load(url, (obj) => {
-        const backModel = obj.children[0];
-        backModel.material = getBackMaterial(THREE, cubeTexture, refractTexture);
-        const frontModel = backModel.clone(true);
-        frontModel.material = getFrontMaterial(THREE, cubeTexture, refractTexture);
-        backModel.add(frontModel);
-        if (pos) {
-          backModel.position.copy(pos);
-        }
-        resolve(backModel);
-       });
-      });
+    
+
+    function setModelUniformsV3 (param, v3) {
+      frontModel.material.uniforms[param].value[0] = v3.x;
+      frontModel.material.uniforms[param].value[1] = v3.y;
+      frontModel.material.uniforms[param].value[2] = v3.z;
+      backModel.material.uniforms[param].value[0] = v3.x;
+      backModel.material.uniforms[param].value[1] = v3.y;
+      backModel.material.uniforms[param].value[2] = v3.z;
+   }
+
+    function setModelUniformsV1(param, v1) {
+      frontModel.material.uniforms[param].value = v1;
+      backModel.material.uniforms[param].value = v1;
     }
 
-    function setModelUniformsV3 (item, param, v3) {
+    function setModelUniformsC3(param, value) {
       
-        item.material.uniforms[param].value[0] = v3.x;
-        item.material.uniforms[param].value[1] = v3.y;
-        item.material.uniforms[param].value[2] = v3.z;
-        item.children[0].material.uniforms[param].value[0] = v3.x;
-        item.children[0].material.uniforms[param].value[1] = v3.y;
-        item.children[0].material.uniforms[param].value[2] = v3.z;
+      frontModel.material.uniforms[param].value = new THREE.Vector3(value[0] / 255, value[1] / 255, value[2] / 255);
+      backModel.material.uniforms[param].value = new THREE.Vector3(value[0] / 255, value[1] / 255, value[2] / 255);
       
-    }
-
-    function setModelUniformsV1 (param, v1) {
-      models.forEach((item) => {
-        item.material.uniforms[param].value = v1;
-        item.children[0].material.uniforms[param].value = v1;
-      });
-    }
-
-    function setModelUniformsC3 (param,value) {
-      models.forEach((item) => {
-        item.material.uniforms[param].value = new THREE.Vector3(value[0] / 255, value[1]/ 255, value[2]/ 255);
-        item.children[0].material.uniforms[param].value = new THREE.Vector3(value[0] / 255, value[1]/ 255, value[2]/ 255);
-      });
     }
 
 
@@ -243,13 +262,8 @@
       let mat = new THREE.Matrix4();
       let modlePos = new THREE.Vector3();
       modlePos.copy(camera.position);
-      models.forEach((item)=> {
-        modlePos.applyMatrix4(mat.getInverse(item.matrix));
-        setModelUniformsV3 (item,"cameraWorldPos", modlePos);
-
-        //item.rotation.x += 0.01;
-      });
-      
+      modlePos.applyMatrix4(mat.getInverse(backModel.matrixWorld));
+      setModelUniformsV3("cameraWorldPos", modlePos);
       render();
     }
 
@@ -262,6 +276,7 @@
 
     function render() {
       composer.render();
+      //renderer.render(scene, camera);
     }
 
   </script>
