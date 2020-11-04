@@ -38,7 +38,8 @@
     import {OBJLoader2} from './lib/OBJLoader2.js';
     import { EffectComposer } from './lib/postprocessing/EffectComposer.js';
 		import { RenderPass } from './lib/postprocessing/RenderPass.js';
-		import { ShaderPass } from './lib/postprocessing/ShaderPass.js';
+    import { ShaderPass } from './lib/postprocessing/ShaderPass.js';
+    import { UnrealBloomPass } from './lib/postprocessing/UnrealBloomPass.js';
     import { GUI } from './lib/dat.gui.module.js';
     import {getBackMaterial, getFrontMaterial} from './shader.js'
 
@@ -47,7 +48,7 @@
     console.log(`THREE.RGBFormat:${THREE.RGBFormat}`);
     console.log(`THREE.UnsignedByteType:${THREE.UnsignedByteType}`);
 
-    var container, controls;
+    var container, controls,composer, bloomPass;
     var roughnessMipmapper;
     var camera, scene, renderer;
     var composer;
@@ -60,7 +61,7 @@
       this.Color = [1, 1, 1]; // RGB array
       this.ReflectionStrength = 2.0;
       this.EnvironmentLight = 0.4;
-      this.Emission = 0.7;
+      this.Emission = 0.19;
       this.backAlpha = 0.5;
       this.frontAlpha = 0.5;
     };
@@ -84,6 +85,34 @@
     gui.add(controls, 'frontAlpha', 0.0, 1.0).onChange((value) => {
       setModelUniformsV1("frontAlpha", value);
     });
+
+    var params = {
+				exposure: 1.1,
+				bloomStrength: 0.8,
+				bloomThreshold: 1.3595,
+				bloomRadius: 0.182
+    };
+    
+    gui.add( params, 'exposure', 0.1, 2 ).onChange( function ( value ) {
+       renderer.toneMappingExposure = Math.pow( value, 4.0 );
+    } );
+
+    gui.add( params, 'bloomThreshold', 0.0, 1.0 ).onChange( function ( value ) {
+        bloomPass.threshold = ( value );
+    } );
+
+    gui.add( params, 'bloomStrength', 0.0, 10.0 ).onChange( function ( value ) {
+
+        bloomPass.strength = value;
+
+    } );
+
+    gui.add( params, 'bloomRadius', 0.0, 1.0 ).onChange( function ( value ) {
+
+        bloomPass.radius = ( value );
+
+    } );
+
 
 
 
@@ -148,6 +177,19 @@
         scene.add(item);
       });
       scene.background =  cubeTexture;
+
+      const renderScene = new RenderPass( scene, camera );
+
+        bloomPass = new UnrealBloomPass( new THREE.Vector2( window.innerWidth, window.innerHeight ), 1.5, 0.4, 0.85 );
+				bloomPass.threshold = params.bloomThreshold;
+				bloomPass.strength = params.bloomStrength;
+				bloomPass.radius = params.bloomRadius;
+
+				composer = new EffectComposer( renderer );
+				composer.addPass( renderScene );
+        composer.addPass( bloomPass );
+        console.log(composer);
+      
       animate();
     }
 
@@ -219,7 +261,7 @@
     }
 
     function render() {
-      renderer.render(scene, camera);
+      composer.render();
     }
 
   </script>
