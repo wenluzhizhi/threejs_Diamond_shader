@@ -38,7 +38,8 @@
     import {OBJLoader2} from './lib/OBJLoader2.js';
     import { EffectComposer } from './lib/postprocessing/EffectComposer.js';
 		import { RenderPass } from './lib/postprocessing/RenderPass.js';
-		import { ShaderPass } from './lib/postprocessing/ShaderPass.js';
+    import { ShaderPass } from './lib/postprocessing/ShaderPass.js';
+    import { UnrealBloomPass } from './lib/postprocessing/UnrealBloomPass.js';
     import { GUI } from './lib/dat.gui.module.js';
     import {getBackMaterial, getFrontMaterial,getRayMaterial} from './shader.js'
 
@@ -47,7 +48,7 @@
     console.log(`THREE.RGBFormat:${THREE.RGBFormat}`);
     console.log(`THREE.UnsignedByteType:${THREE.UnsignedByteType}`);
 
-    var container, controls;
+    var container, controls, composer,bloomPass;
     var roughnessMipmapper;
     var camera, scene, renderer;
     var composer;
@@ -57,35 +58,72 @@
     var vConsole = new VConsole();
     var gui = new GUI();
     var controls = new function () {
-      this.Color = [1, 1, 1]; // RGB array
-      this.ReflectionStrength = 2.0;
-      this.EnvironmentLight = 0.4;
-      this.Emission = 0.7;
-      this.backAlpha = 0.5;
-      this.frontAlpha = 0.5;
+      this._TraceCount = 5;
+      this._IOR = 2.83;
+      this._Color = [1, 1, 1];
+      this._AbsorbIntensity = 3.82;
+      this._ColorMultiply = 0.3;
+      this._ColorAdd = 0.05;
+      this._Specular = 0.662;
     };
-    gui.addColor(controls, 'Color').onChange((value)=> {
-      setModelUniformsC3("Color", value);
+    gui.addColor(controls, '_Color').onChange((value)=> {
+      setModelUniformsC3("_Color", value);
     });
-    gui.add(controls, 'ReflectionStrength', 0.0, 2.0).onChange((value) => {
-      setModelUniformsV1("ReflectionStrength", value);
+    gui.add(controls, '_TraceCount', 0, 20).onChange((value) => {
+      setModelUniformsV1("_TraceCount", value);
     });
-    gui.add(controls, 'EnvironmentLight', 0.0, 2.0).onChange((value) => {
-      setModelUniformsV1("EnvironmentLight", value);
+    gui.add(controls, '_IOR', 0.0, 5.0).onChange((value) => {
+      setModelUniformsV1("_IOR", value);
     });
-    gui.add(controls, 'Emission', 0.0, 2.0).onChange((value) => {
-      setModelUniformsV1("Emission", value);
-    });
-
-    gui.add(controls, 'backAlpha', 0.0, 1.0).onChange((value) => {
-      setModelUniformsV1("backAlpha", value);
+    gui.add(controls, '_AbsorbIntensity', 0.0, 10).onChange((value) => {
+      setModelUniformsV1("_AbsorbIntensity", value);
     });
 
-    gui.add(controls, 'frontAlpha', 0.0, 1.0).onChange((value) => {
-      setModelUniformsV1("frontAlpha", value);
+    gui.add(controls, '_ColorMultiply', 0.0, 5.0).onChange((value) => {
+      setModelUniformsV1("_ColorMultiply", value);
     });
 
-    console.log('Hello world');
+    gui.add(controls, '_ColorAdd', 0.0, 2.0).onChange((value) => {
+      setModelUniformsV1("_ColorAdd", value);
+    });
+
+    gui.add(controls, '_Specular', 0.0, 1.0).onChange((value) => {
+      setModelUniformsV1("_Specular", value);
+    });
+
+
+    var params = {
+				exposure: 1.05,
+				bloomStrength: 0.001,
+				bloomThreshold: 0.2,
+				bloomRadius: 0.001
+    };
+    
+    gui.add( params, 'exposure', 0.1, 2 ).onChange( function ( value ) {
+
+       renderer.toneMappingExposure = Math.pow( value, 4.0 );
+
+    } );
+
+    gui.add( params, 'bloomThreshold', 0.0, 1.0 ).onChange( function ( value ) {
+
+        bloomPass.threshold = ( value );
+
+    } );
+
+    gui.add( params, 'bloomStrength', 0.0, 3.0 ).onChange( function ( value ) {
+
+        bloomPass.strength = value;
+
+    } );
+
+    gui.add( params, 'bloomRadius', 0.0, 1.0 ).onChange( function ( value ) {
+
+        bloomPass.radius = ( value );
+
+    } );
+
+
     init();
     async function init() {
       container = document.createElement('div');
@@ -93,15 +131,16 @@
       camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.25, 200);
       camera.position.set(- 1.8, 0.6, 2.7);
       scene = new THREE.Scene();
+      scene.add(camera);
       // scene.background = new THREE.Color(0xffffff);
 
       renderer = new THREE.WebGLRenderer({antialias:true});
-      renderer.debug.checkShaderErrors = false;
+      //renderer.debug.checkShaderErrors = false;
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
       //renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      //renderer.toneMappingExposure = 0.35;
-      renderer.outputEncoding = THREE.sRGBEncoding;
+      //renderer.toneMappingExposure = 2.8;
+      //renderer.outputEncoding = THREE.sRGBEncoding;
       container.appendChild(renderer.domElement);
       var pmremGenerator = new THREE.PMREMGenerator(renderer);
       pmremGenerator.compileEquirectangularShader();
@@ -111,18 +150,18 @@
       controls.target.set(0, 0, 0);
       controls.update();
       window.addEventListener('resize', onWindowResize, false);
-      var cubeTexture = new THREE.CubeTextureLoader().setPath('cube/Bridge2/')
+      var cubeTexture = new THREE.CubeTextureLoader().setPath('cube/2/')
             .load(
                 [
-                    'px.jpg',
-                    'nx.jpg',
-                    'py.jpg',
-                    'ny.jpg',
-                    'pz.jpg',
-                    'nz.jpg'
+                    'px.png',
+                    'nx.png',
+                    'py.png',
+                    'ny.png',
+                    'pz.png',
+                    'nz.png'
                 ]
             );
-      cubeTexture.mapping = THREE.CubeRefractionMapping;
+      cubeTexture.encoding = THREE.sRGBEncoding;//设置编码属性的值
       var refractTexture = new THREE.CubeTextureLoader().setPath('cube/12/')
             .load(
                 [
@@ -134,22 +173,53 @@
                     '4.jpg'
                 ]
             );
-      refractTexture.mapping = THREE.CubeRefractionMapping;
-      models.push(await loadModel('./model/meshes/RoundCut.obj'));
-      models.forEach((item) => {
-        scene.add(item);
+      const hdrLoader = new RGBELoader();
+      hdrLoader.setDataType( THREE.UnsignedByteType );
+      var hdrTexture;
+      hdrLoader.load('cube/HDRI/sculpture_exhibition_2k.hdr', (texture, textureData) => {
+        console.log(texture);
+        texture.encoding = THREE.RGBEEncoding;//设置编码属性的值
+        const envMap = pmremGenerator.fromEquirectangular( texture ).texture;
+				texture.dispose();
+				pmremGenerator.dispose();
+        hdrTexture = envMap;
+        loadModel('./model/meshes/RoundCut.obj', cubeTexture).then((model) => {
+          models.push(model);
+          scene.add(model);
+        });
+        scene.background = cubeTexture;
+
+        // const geometry = new THREE.BoxGeometry( 0.1, 1, 1 );
+        // const material = new THREE.MeshBasicMaterial( {color: 0xffffff} );
+        // const cube = new THREE.Mesh( geometry, material );
+        // scene.add( cube );
+
+        const renderScene = new RenderPass( scene, camera );
+
+        bloomPass = new UnrealBloomPass( new THREE.Vector2( window.innerWidth, window.innerHeight ), 1.5, 0.4, 0.85 );
+				bloomPass.threshold = params.bloomThreshold;
+				bloomPass.strength = params.bloomStrength;
+				bloomPass.radius = params.bloomRadius;
+
+				composer = new EffectComposer( renderer );
+				composer.addPass( renderScene );
+        composer.addPass( bloomPass );
+        console.log(composer);
+        animate();
       });
-      scene.background =  cubeTexture;
-      animate();
+      refractTexture.mapping = THREE.CubeRefractionMapping;
+      
     }
 
 
-    function loadModel(url, cubeTexture, refractTexture, pos) {
+    function loadModel(url, t) {
+      console.log('t:');
+      console.log(t);
       var loader = new OBJLoader2()
       return new Promise((resolve, reject) => {
         loader.load(url, (obj) => {
         const backModel = obj.children[0];
-        const material = getRayMaterial(THREE, cubeTexture);
+        const material = getRayMaterial(THREE, t);
         backModel.material = material;
 
         const posArray = backModel.geometry.attributes.position.array;
@@ -165,39 +235,25 @@
           posArrayV3.push(new THREE.Vector3(posArray[i], posArray[i+1], posArray[i+2]));
           normalArrayV3.push(new THREE.Vector3(normalArray[i], normalArray[i+1], normalArray[i+2]));
         }
-        console.log(posArrayV3);
-        console.log(normalArrayV3);
+        // console.log(posArrayV3);
+        // console.log(normalArrayV3);
 
         material.uniforms.pos.value = posArrayV3;
-        material.uniforms.normal.value = normalArrayV3;
         resolve(backModel);
        });
       });
     }
 
-    function setModelUniformsV3 (item, param, v3) {
-      
-        // item.material.uniforms[param].value[0] = v3.x;
-        // item.material.uniforms[param].value[1] = v3.y;
-        // item.material.uniforms[param].value[2] = v3.z;
-        // item.children[0].material.uniforms[param].value[0] = v3.x;
-        // item.children[0].material.uniforms[param].value[1] = v3.y;
-        // item.children[0].material.uniforms[param].value[2] = v3.z;
-      
-    }
-
     function setModelUniformsV1 (param, v1) {
-      // models.forEach((item) => {
-      //   item.material.uniforms[param].value = v1;
-      //   item.children[0].material.uniforms[param].value = v1;
-      // });
+      models.forEach((item) => {
+        item.material.uniforms[param].value = v1;
+      });
     }
 
     function setModelUniformsC3 (param,value) {
-      // models.forEach((item) => {
-      //   item.material.uniforms[param].value = new THREE.Vector3(value[0] / 255, value[1]/ 255, value[2]/ 255);
-      //   item.children[0].material.uniforms[param].value = new THREE.Vector3(value[0] / 255, value[1]/ 255, value[2]/ 255);
-      // });
+      models.forEach((item) => {
+        item.material.uniforms[param].value = new THREE.Vector3(value[0] / 255, value[1]/ 255, value[2]/ 255);
+      });
     }
 
 
@@ -208,33 +264,20 @@
       let modlePos = new THREE.Vector3();
       modlePos.copy(camera.position);
       models.forEach((item)=> {
-        // modlePos.applyMatrix4(mat.getInverse(item.matrix));
-        // setModelUniformsV3 (item,"cameraWorldPos", modlePos);
-        //item.rotation.x += 0.01;
         item.material.uniforms.UNITY_MATRIX_I_V.value = camera.matrixWorld;
         item.material.uniforms.unity_CameraInvProjection.value = camera.projectionMatrixInverse;
-
-        // const v1 = new THREE.Vector3(0, 0, 0);
-        // v1.applyMatrix4(camera.matrixWorld);
-        // console.log(v1);
-        // console.log(camera.position);
       });
-
-      console.log();
-      
-      render();
+      composer.render();
     }
 
     function onWindowResize() {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
-      render();
+      composer.setSize( window.innerWidth, window.innerHeight );
+      //render();
     }
 
-    function render() {
-      renderer.render(scene, camera);
-    }
 
   </script>
 </body>

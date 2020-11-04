@@ -76,9 +76,6 @@ const frontMaterial_vert = `
       float r0 = ((1.0 - FRACT) * (1.0 - FRACT)) / ((1.0 + FRACT) * (1.0 + FRACT));
       // 菲涅尔公式
       fresnel = r0 + (1.0- r0) * pow(1.0- clamp(dot(vNormal, vertexViewDir), 0.0, 1.0), _Power);
-
-
-
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
 `;
@@ -171,16 +168,18 @@ const rayMaterial_frag = `
     uniform mat4 UNITY_MATRIX_I_V;
     uniform mat4 localToWorldMatrix;
     uniform mat4 unity_CameraInvProjection;
-    uniform vec3 _Specular;
+    uniform float _Specular;
     uniform vec3 pos[234];
-    uniform vec3 normal[234];
     uniform vec3 _Color;
-    uniform float _TraceCount;
+    uniform int _TraceCount;
     uniform float _IOR;
     uniform samplerCube _Cubemap;
     uniform float _AbsorbIntensity;
     uniform float _ColorMultiply;
-    uniform float _ColorAddp;
+    uniform float _ColorAdd;
+    uniform int _TriangleCount;
+    const int _TraceCount_MAX = 20;
+    const int _TriangleCount_MAX = 100;
    
 
 
@@ -278,18 +277,20 @@ const rayMaterial_frag = `
     {
         int offset = 0;
         int count = 78;
-        for (int i = 0; i < 78; i ++) {
-          vec3 v0 = (localToWorldMatrix * vec4(pos[i * 3], 1.0)).xyz;
-          vec3 v1 = (localToWorldMatrix * vec4(pos[i * 3 + 1], 1.0)).xyz;
-          vec3 v2 = (localToWorldMatrix * vec4(pos[i * 3 + 2], 1.0)).xyz;
-          float t, u, v;
-          if (IntersectTriangle_MT97_NoCull(ray, v0, v1, v2, t, u, v))
-          {
-             if(t > 0.0 && t < bestHit.distance) {
-              bestHit.distance = t;
-              bestHit.position = ray.origin + t * ray.direction;
-              bestHit.normal = normalize(cross(v1 - v0, v2 - v0));
-             }
+        for (int i = 0; i < _TriangleCount_MAX; i ++) {
+          if (i < _TriangleCount) {
+              vec3 v0 = (localToWorldMatrix * vec4(pos[i * 3], 1.0)).xyz;
+              vec3 v1 = (localToWorldMatrix * vec4(pos[i * 3 + 1], 1.0)).xyz;
+              vec3 v2 = (localToWorldMatrix * vec4(pos[i * 3 + 2], 1.0)).xyz;
+              float t, u, v;
+              if (IntersectTriangle_MT97_NoCull(ray, v0, v1, v2, t, u, v))
+              {
+                if(t > 0.0 && t < bestHit.distance) {
+                  bestHit.distance = t;
+                  bestHit.position = ray.origin + t * ray.direction;
+                  bestHit.normal = normalize(cross(v1 - v0, v2 - v0));
+                }
+              }
           }
         }
   
@@ -364,7 +365,7 @@ const rayMaterial_frag = `
              vec3 reflectDir = reflect(ray.direction, hit.normal);
              reflectDir = normalize(reflectDir);
             
-             vec3 reflectProb = FresnelSchlick(normal, ray.direction, eta) * _Specular;
+             vec3 reflectProb = FresnelSchlick(normal, ray.direction, eta) * vec3(_Specular, _Specular, _Specular);
              specular = SampleCubemap(reflectDir) * reflectProb;
              ray.energy *= 1.0 - reflectProb;
            }
@@ -394,8 +395,8 @@ const rayMaterial_frag = `
           vec3 cubeColor = SampleCubemap(ray.direction);
           vec3 absorbColor = vec3(1.0, 1.0, 1.0) - _Color;
           vec3 absorb = exp(-absorbColor * ray.absorbDistance * _AbsorbIntensity);
-  
-          return cubeColor * absorb * _ColorMultiply ;
+          vec3 addv = _Color * vec3(_ColorAdd, _ColorAdd, _ColorAdd);
+          return cubeColor * absorb * _ColorMultiply + addv;
         }
     }
 
@@ -412,13 +413,14 @@ const rayMaterial_frag = `
       Ray ray = CreateCameraRay(screenUV);
       vec3 result = vec3(0.0, 0.0, 0.0);
       //#pragma unroll_loop_start
-      for ( int i = 0; i < 10; i ++ ) {
-        RayHit hit = Trace(ray);
-        result = result + ray.energy * Shade(ray, hit, i);
-        if (!any(ray.energy))
-          break;
+      for ( int i = 0; i < _TraceCount_MAX; i ++ ) {
+        if (i <= _TraceCount) {
+          RayHit hit = Trace(ray);
+          result = result + ray.energy * Shade(ray, hit, i);
+          if (!any(ray.energy))
+            break;
+        }
       }
-      //#pragma unroll_loop_end
       gl_FragColor =  vec4(result, 1.0);
     }
 `;
@@ -436,12 +438,13 @@ function getRayMaterial(THREE, cubeTexture) {
       "unity_CameraInvProjection":{value: new THREE.Matrix4()},
       "_TraceCount":{value:5},
       "localToWorldMatrix":{value: new THREE.Matrix4()},
-      "_IOR":{value:2.47},
-      "_Specular":{value:new THREE.Vector3(1, 1, 1)},
+      "_IOR":{value:2.83},
+      "_Specular":{value: 0.662},
       "_Color":{value:new THREE.Vector3(1, 1, 1)},
-      "_AbsorbIntensity": {value:2.89},
-      "_ColorMultiply":{value:1.18},
-      "_ColorAdd" :{value:0.05},
+      "_AbsorbIntensity": {value: 0.234},
+      "_ColorMultiply":{value: 1.78},
+      "_ColorAdd" :{value: 0.386},
+      "_TriangleCount":{value:78},
       "_Cubemap": { type: "t", value: cubeTexture },
     }
 
