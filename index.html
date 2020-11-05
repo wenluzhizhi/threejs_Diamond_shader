@@ -40,7 +40,7 @@
     import { ShaderPass } from './lib/postprocessing/ShaderPass.js';
     import { UnrealBloomPass } from './lib/postprocessing/UnrealBloomPass.js';
     import { GUI } from './lib/dat.gui.module.js';
-    import { getBackMaterial, getFrontMaterial } from './shader.js'
+    import { simpleRayMaterial } from './shader.js'
 
     console.log(THREE.REVISION)
     console.log(`THREE.RGBAFormat:${THREE.RGBAFormat}`);
@@ -51,7 +51,7 @@
     var roughnessMipmapper;
     var camera, scene, renderer;
     var composer;
-    var frontModel, backModel, zhihuanModel;
+    var frontModel, backModel, zhihuanModel, zuanshiModel;
     var backMaterial, frontMaterial;
     var models = [];
     var clock = new THREE.Clock();
@@ -164,18 +164,9 @@
     }
 
     function processModel(model, cubeTexture, refractTexture) {
-      console.log('-----------------');
-      console.log(cubeTexture);
-      console.log(refractTexture);
-      backModel = model.getObjectByName("zuanshi");
-      frontModel = backModel.clone(true);
-      frontModel.name = "front_zuanshi";
-      backModel.parent.add(frontModel);
-      backModel.material = getBackMaterial(THREE, cubeTexture, refractTexture);
-      console.log(frontModel);
-      frontModel.material = getFrontMaterial(THREE, cubeTexture, refractTexture);
-
       zhihuanModel = model.getObjectByName("zhihuan");
+      zuanshiModel = model.getObjectByName("zuanshi");
+      zuanshiModel.material = simpleRayMaterial(THREE);
     }
 
     init();
@@ -262,8 +253,8 @@
       let mat = new THREE.Matrix4();
       let modlePos = new THREE.Vector3();
       modlePos.copy(camera.position);
-      modlePos.applyMatrix4(mat.getInverse(backModel.matrixWorld));
-      setModelUniformsV3("cameraWorldPos", modlePos);
+      //modlePos.applyMatrix4(mat.getInverse(backModel.matrixWorld));
+      //setModelUniformsV3("cameraWorldPos", modlePos);
       render();
     }
 
