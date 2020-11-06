@@ -27,42 +27,6 @@
 <body>
   <div id="info">
   </div>
-  <script type="x-shader/x-vertex" id="vertexshader">
-
-    varying vec2 vUv;
-
-    void main() {
-
-      vUv = uv;
-
-      gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-
-    }
-
-  </script>
-
-  <script type="x-shader/x-fragment" id="fragmentshader">
-
-    uniform sampler2D baseTexture;
-    uniform sampler2D bloomTexture;
-
-    varying vec2 vUv;
-
-    vec4 getTexture( sampler2D texelToLinearTexture ) {
-
-      return mapTexelToLinear( texture2D( texelToLinearTexture , vUv ) );
-
-    }
-
-    void main() {
-       
-      vec4 v1 =  getTexture( baseTexture );
-      vec4 v2 = vec4( 1.0 ) * getTexture( bloomTexture );
-      gl_FragColor = v1 + v2;
-    }
-
-  </script>
-
   <script type='text/javascript' src='./Vconsole.js'></script>
   <script type= 'text/javascript' src='lib/EquirectangularToCubemap.js'></script>
   <script type="module">
@@ -77,21 +41,20 @@
     import { ShaderPass } from './lib/postprocessing/ShaderPass.js';
     import { UnrealBloomPass } from './lib/postprocessing/UnrealBloomPass.js';
     import { GUI } from './lib/dat.gui.module.js';
-    import { getBackMaterial, getFrontMaterial } from './shader.js'
+    import { getBackMaterial, getFrontMaterial ,getFinalPassShader} from './shader.js'
 
     console.log(THREE.REVISION)
     console.log(`THREE.RGBAFormat:${THREE.RGBAFormat}`);
     console.log(`THREE.RGBFormat:${THREE.RGBFormat}`);
     console.log(`THREE.UnsignedByteType:${THREE.UnsignedByteType}`);
 
-    var container, controls, composer, bloomPass, renderScene, renderScene2, finalComposer;
+    var container, controls, composer, bloomPass, renderScene, finalComposer;
     var roughnessMipmapper;
     var camera, scene, renderer;
     var composer;
     var frontModel, backModel, zhihuanModel;
     var backMaterial, frontMaterial;
     var models = [];
-    var clock = new THREE.Clock();
     var vConsole = new VConsole();
     var materials = {};
     var NORMAL_SCENE = 0, BLOOM_SCENE = 1;
@@ -123,8 +86,6 @@
         showZhihuan: true,
       };
 
-
-
       gui.addColor(controls, 'Color').onChange((value) => {
         setModelUniformsC3("Color", value);
       });
@@ -140,7 +101,6 @@
       gui.add(controls, 'frontAlpha', 0.0, 1.0).onChange((value) => {
         frontModel.material.uniforms.frontAlpha.value = value;
       });
-
 
       gui.add(controls, 'BackReflectionStrength', 0.0, 2.0).onChange((value) => {
         backModel.material.uniforms.BackReflectionStrength.value = value;
@@ -259,11 +219,10 @@
       const model = await loadGlb('model/jiezhi/jiezhi.glb');
       scene.add(model);
       processModel(model, hdr[1], hdr[1]);
-      console.log(model);
+     
 
       scene.environment = hdr[0];
       //scene.background =  hdr[0];
-
       renderScene = new RenderPass(scene, camera);
       //renderScene.renderToScreen = true;
 
@@ -271,8 +230,6 @@
       bloomPass.threshold = params.bloomThreshold;
       bloomPass.strength = params.bloomStrength;
       bloomPass.radius = params.bloomRadius;
-
-
       composer = new EffectComposer(renderer);
       composer.addPass(renderScene);
       composer.addPass(bloomPass);
@@ -280,15 +237,7 @@
       composer.renderToScreen = false;
 
       var finalPass = new ShaderPass(
-        new THREE.ShaderMaterial({
-          uniforms: {
-            baseTexture: { value: null },
-            bloomTexture: { value: composer.renderTarget2.texture }
-          },
-          vertexShader: document.getElementById('vertexshader').textContent,
-          fragmentShader: document.getElementById('fragmentshader').textContent,
-          defines: {}
-        }), "baseTexture"
+        getFinalPassShader(composer.renderTarget2.texture, THREE), "baseTexture"
       );
       finalPass.needsSwap = true;
       finalComposer = new EffectComposer(renderer);
