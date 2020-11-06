@@ -59,14 +59,12 @@
       vec4 v1 =  getTexture( baseTexture );
       vec4 v2 = vec4( 1.0 ) * getTexture( bloomTexture );
       gl_FragColor = v1 + v2;
-      
-      
-
     }
 
   </script>
 
   <script type='text/javascript' src='./Vconsole.js'></script>
+  <script type= 'text/javascript' src='lib/EquirectangularToCubemap.js'></script>
   <script type="module">
     import * as THREE from './lib/three.module.js';
     import { OrbitControls } from './lib/OrbitControls.js';
@@ -175,22 +173,9 @@
 
       });
       gui.add(controls, 'showZhihuan').onChange(function (value) {
-
         zhihuanModel.visible = value;
-
       });
 
-    }
-
-
-    function loadCubeMap(url) {
-      return new Promise((resolve, reject) => {
-        const loader = new THREE.CubeTextureLoader();
-        loader.setPath(url);
-        const tex = loader.load(['px.jpg', 'nx.jpg', 'py.jpg', 'ny.jpg', 'pz.jpg', 'nz.jpg'], (cubeTexture) => {
-          resolve(cubeTexture);
-        });
-      });
     }
 
     function loadGlb(url) {
@@ -203,10 +188,30 @@
       });
     }
 
+
+    function loadHDR(url, pmremGenerator) {
+      return new Promise((resolve, reject) => {
+        var loader = new RGBELoader();
+        loader.setDataType(THREE.UnsignedByteType);
+        loader.load(url, (texture) => {
+          var envMap = pmremGenerator.fromEquirectangular(texture).texture;
+          var equiToCube = new EquirectangularToCubemap( renderer, THREE );
+          var cubeMap = equiToCube.convert( texture, 1024 ,THREE);
+          resolve([envMap, cubeMap]);
+        });
+      });
+    }
+
     function processModel(model, cubeTexture, refractTexture) {
-      console.log('-----------------');
-      console.log(cubeTexture);
-      console.log(refractTexture);
+
+      // const geometry = new THREE.SphereGeometry(0.05, 128, 128);
+      // const material = new getBackMaterial(THREE, cubeTexture, refractTexture);
+      // const sp = new THREE.Mesh(geometry, material);
+      // model.getObjectByName("zuanshi").visible = false;;
+      // scene.add(sp);
+      // backModel = sp;
+
+
       backModel = model.getObjectByName("zuanshi");
       frontModel = backModel.clone(true);
       frontModel.name = "front_zuanshi";
@@ -238,7 +243,7 @@
       renderer.debug.checkShaderErrors = false;
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      // renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1;
       renderer.outputEncoding = THREE.sRGBEncoding;
       container.appendChild(renderer.domElement);
@@ -250,19 +255,14 @@
       controls.target.set(0, 0, 0);
       controls.update();
       window.addEventListener('resize', onWindowResize, false);
-      const cubeTexture = await loadCubeMap('model/jiezhi/');
-      const refractTexture = await loadCubeMap('cube/12/1/');
-
-
-
-
+      const hdr = await loadHDR('model/hdr/GlazedPatio.hdr', pmremGenerator);
       const model = await loadGlb('model/jiezhi/jiezhi.glb');
       scene.add(model);
-      processModel(model, cubeTexture, refractTexture);
+      processModel(model, hdr[1], hdr[1]);
       console.log(model);
 
-      scene.environment = cubeTexture;
-      //scene.background = cubeTexture;
+      scene.environment = hdr[0];
+      //scene.background =  hdr[0];
 
       renderScene = new RenderPass(scene, camera);
       //renderScene.renderToScreen = true;

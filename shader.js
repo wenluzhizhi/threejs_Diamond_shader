@@ -84,12 +84,12 @@ const frontMaterial_frag = `
     uniform float FrontEmissionStrength;
     uniform float frontAlpha;
     void main() {
+        
         vec3 refraction = textureCube(RefractTex, refractUV).xyz;
         vec3 reflection = textureCube(tCube, reflectUV).xyz;
         vec3 emissionColor = Color * fresnel * FrontEmissionStrength;
         vec3 multiplier = (reflection * FrontReflectionStrength  + refraction * FrontRefractionStrength) * fresnel;
         gl_FragColor =  vec4(multiplier + emissionColor, frontAlpha);
-        //gl_FragColor = vec4(1.0, 1.0, 1.0, frontAlpha);
     }
 
 `;
