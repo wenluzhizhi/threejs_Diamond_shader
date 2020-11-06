@@ -27,6 +27,45 @@
 <body>
   <div id="info">
   </div>
+  <script type="x-shader/x-vertex" id="vertexshader">
+
+    varying vec2 vUv;
+
+    void main() {
+
+      vUv = uv;
+
+      gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+
+    }
+
+  </script>
+
+  <script type="x-shader/x-fragment" id="fragmentshader">
+
+    uniform sampler2D baseTexture;
+    uniform sampler2D bloomTexture;
+
+    varying vec2 vUv;
+
+    vec4 getTexture( sampler2D texelToLinearTexture ) {
+
+      return mapTexelToLinear( texture2D( texelToLinearTexture , vUv ) );
+
+    }
+
+    void main() {
+       
+      vec4 v1 =  getTexture( baseTexture );
+      vec4 v2 = vec4( 1.0 ) * getTexture( bloomTexture );
+      gl_FragColor = v1 + v2;
+      
+      
+
+    }
+
+  </script>
+
   <script type='text/javascript' src='./Vconsole.js'></script>
   <script type="module">
     import * as THREE from './lib/three.module.js';
@@ -47,7 +86,7 @@
     console.log(`THREE.RGBFormat:${THREE.RGBFormat}`);
     console.log(`THREE.UnsignedByteType:${THREE.UnsignedByteType}`);
 
-    var container, controls, composer, bloomPass;
+    var container, controls, composer, bloomPass, renderScene, renderScene2, finalComposer;
     var roughnessMipmapper;
     var camera, scene, renderer;
     var composer;
@@ -56,36 +95,37 @@
     var models = [];
     var clock = new THREE.Clock();
     var vConsole = new VConsole();
-
+    var materials = {};
+    var NORMAL_SCENE = 0, BLOOM_SCENE = 1;
+    var bloomLayer = new THREE.Layers();
+    bloomLayer.set( BLOOM_SCENE );
+    var darkMaterial = new THREE.MeshBasicMaterial( { color: "black" } );
 
     var gui = new GUI();
-   
-
-    
     var params = {
-        exposure: 1.1,
-        bloomStrength: 0.8,
-        bloomThreshold: 0.6,
-        bloomRadius: 0.182
-      };
-     
+      exposure: 1.1,
+      bloomStrength: 0.8,
+      bloomThreshold: 0.6,
+      bloomRadius: 0.182
+    };
+
     function AddGUI(params) {
-      
-      var controls ={
-          Color : [1, 1, 1], // RGB array
-          BackReflectionStrength : 1.0,
-          BackRefractionStrength : 1.0,
-          EnvironmentLight : 0.4,
-          Emission : 0.19,
-          backAlpha : 0.5,
-          frontAlpha : 0.5,
-          FrontReflectionStrength:1.0,
-          FrontRefractionStrength:1.0,
-          FrontEmissionStrength:1.0,
-          showZhihuan: true,
+
+      var controls = {
+        Color: [1, 1, 1], // RGB array
+        BackReflectionStrength: 1.0,
+        BackRefractionStrength: 1.0,
+        EnvironmentLight: 0.4,
+        Emission: 0.19,
+        backAlpha: 0.5,
+        frontAlpha: 0.5,
+        FrontReflectionStrength: 1.0,
+        FrontRefractionStrength: 1.0,
+        FrontEmissionStrength: 1.0,
+        showZhihuan: true,
       };
-      
-      
+
+
 
       gui.addColor(controls, 'Color').onChange((value) => {
         setModelUniformsC3("Color", value);
@@ -147,7 +187,7 @@
       return new Promise((resolve, reject) => {
         const loader = new THREE.CubeTextureLoader();
         loader.setPath(url);
-        const tex = loader.load(['px.jpg','nx.jpg','py.jpg','ny.jpg','pz.jpg','nz.jpg'],(cubeTexture) => {
+        const tex = loader.load(['px.jpg', 'nx.jpg', 'py.jpg', 'ny.jpg', 'pz.jpg', 'nz.jpg'], (cubeTexture) => {
           resolve(cubeTexture);
         });
       });
@@ -174,12 +214,17 @@
       backModel.material = getBackMaterial(THREE, cubeTexture, refractTexture);
       console.log(frontModel);
       frontModel.material = getFrontMaterial(THREE, cubeTexture, refractTexture);
-
       zhihuanModel = model.getObjectByName("zhihuan");
+
+      frontModel.layers.enable( BLOOM_SCENE );
+      backModel.layers.enable( BLOOM_SCENE );
+      zhihuanModel.layers.enable(NORMAL_SCENE);
     }
 
     init();
     AddGUI(params);
+
+    var renderTarget = new THREE.WebGLRenderTarget(1024, 1024);
 
     async function init() {
       container = document.createElement('div');
@@ -209,39 +254,60 @@
       const refractTexture = await loadCubeMap('cube/12/1/');
 
 
+
+
       const model = await loadGlb('model/jiezhi/jiezhi.glb');
       scene.add(model);
-      processModel(model, cubeTexture, refractTexture );
+      processModel(model, cubeTexture, refractTexture);
       console.log(model);
 
       scene.environment = cubeTexture;
       //scene.background = cubeTexture;
 
-      const renderScene = new RenderPass(scene, camera);
+      renderScene = new RenderPass(scene, camera);
+      //renderScene.renderToScreen = true;
+
       bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
       bloomPass.threshold = params.bloomThreshold;
       bloomPass.strength = params.bloomStrength;
       bloomPass.radius = params.bloomRadius;
 
+
       composer = new EffectComposer(renderer);
       composer.addPass(renderScene);
       composer.addPass(bloomPass);
-      console.log(composer);
 
+      composer.renderToScreen = false;
+
+      var finalPass = new ShaderPass(
+        new THREE.ShaderMaterial({
+          uniforms: {
+            baseTexture: { value: null },
+            bloomTexture: { value: composer.renderTarget2.texture }
+          },
+          vertexShader: document.getElementById('vertexshader').textContent,
+          fragmentShader: document.getElementById('fragmentshader').textContent,
+          defines: {}
+        }), "baseTexture"
+      );
+      finalPass.needsSwap = true;
+      finalComposer = new EffectComposer(renderer);
+      finalComposer.addPass(renderScene);
+      finalComposer.addPass(finalPass);
       animate();
     }
 
 
-    
 
-    function setModelUniformsV3 (param, v3) {
+
+    function setModelUniformsV3(param, v3) {
       frontModel.material.uniforms[param].value[0] = v3.x;
       frontModel.material.uniforms[param].value[1] = v3.y;
       frontModel.material.uniforms[param].value[2] = v3.z;
       backModel.material.uniforms[param].value[0] = v3.x;
       backModel.material.uniforms[param].value[1] = v3.y;
       backModel.material.uniforms[param].value[2] = v3.z;
-   }
+    }
 
     function setModelUniformsV1(param, v1) {
       frontModel.material.uniforms[param].value = v1;
@@ -249,10 +315,9 @@
     }
 
     function setModelUniformsC3(param, value) {
-      
       frontModel.material.uniforms[param].value = new THREE.Vector3(value[0] / 255, value[1] / 255, value[2] / 255);
       backModel.material.uniforms[param].value = new THREE.Vector3(value[0] / 255, value[1] / 255, value[2] / 255);
-      
+
     }
 
 
@@ -274,9 +339,34 @@
       render();
     }
 
-    function render() {
+    function processNormalObject() {
+      scene.traverse(darkenNonBloomed);
       composer.render();
-      //renderer.render(scene, camera);
+      scene.traverse(restoreMaterial);
+    }
+
+    function darkenNonBloomed(obj) {
+      if (obj.isMesh && bloomLayer.test(obj.layers) === false) {
+        materials[obj.uuid] = obj.material;
+        obj.material = darkMaterial;
+      }
+
+    }
+
+    function restoreMaterial(obj) {
+
+      if (materials[obj.uuid]) {
+
+        obj.material = materials[obj.uuid];
+        delete materials[obj.uuid];
+
+      }
+
+    }
+
+    function render() {
+      processNormalObject();
+      finalComposer.render();
     }
 
   </script>

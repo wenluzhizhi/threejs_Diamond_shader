@@ -101,7 +101,7 @@ function getFrontMaterial(THREE, cubeTexture, refractTexture) {
    fragmentShader: frontMaterial_frag,
     side: THREE.FrontSide,
     transparent: true,
-    depthWrite: false,
+    depthWrite: true,
     uniforms:{
       "tCube": { type: "t", value: cubeTexture },
       "cameraWorldPos":{value:[0, 0, 0]},
@@ -125,7 +125,7 @@ function getBackMaterial(THREE, cubeTexture, refractTexture) {
     fragmentShader: backMaterial_frag,
     side: THREE.BackSide,
     transparent: true,
-    depthWrite: false,
+    depthWrite: true,
     uniforms:{
       "tCube": { type: "t", value: cubeTexture },
       "RefractTex": { type: "t", value: refractTexture },
